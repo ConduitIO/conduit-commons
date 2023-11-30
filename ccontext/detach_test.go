@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package ctxutil
+package ccontext
 
 import (
 	"context"
@@ -45,7 +45,7 @@ func TestDetachContext(t *testing.T) {
 	defer cancel()
 
 	// detach context and assert it is detached
-	detachedCtx := DetachContext(ctx)
+	detachedCtx := Detach(ctx)
 	assertDetachedContext(detachedCtx)
 
 	// cancel parent context and assert again

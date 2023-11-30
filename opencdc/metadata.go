@@ -67,6 +67,8 @@ const (
 	MetadataConduitDLQNackNodeID = "conduit.dlq.nack.node.id"
 )
 
+type Metadata map[string]string
+
 // SetOpenCDCVersion sets the metadata value for key MetadataVersion to the
 // current version of OpenCDC used.
 func (m Metadata) SetOpenCDCVersion() {

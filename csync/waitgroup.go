@@ -18,8 +18,6 @@ import (
 	"context"
 	"sync"
 	"time"
-
-	"github.com/conduitio/conduit-commons/cchan"
 )
 
 // WaitGroup is a sync.WaitGroup with utility methods.
@@ -50,20 +48,12 @@ func (wg *WaitGroup) Done() {
 // Wait blocks until the WaitGroup counter is zero. If the context gets canceled
 // before that happens the method returns an error.
 func (wg *WaitGroup) Wait(ctx context.Context) error {
-	done := make(chan struct{})
-	go func() {
-		(*sync.WaitGroup)(wg).Wait()
-		close(done)
-	}()
-	_, _, err := cchan.ChanOut[struct{}](done).Recv(ctx)
-	return err //nolint:wrapcheck // errors from cchan are already wrapped
+	return Run(ctx, (*sync.WaitGroup)(wg).Wait)
 }
 
 // WaitTimeout blocks until the WaitGroup counter is zero. If the context gets
 // canceled or the timeout is reached before that happens the method returns an
 // error.
 func (wg *WaitGroup) WaitTimeout(ctx context.Context, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	return wg.Wait(ctx)
+	return RunTimeout(ctx, (*sync.WaitGroup)(wg).Wait, timeout)
 }

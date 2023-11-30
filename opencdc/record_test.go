@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/matryer/is"
 )
 
@@ -40,9 +41,9 @@ func TestRecord_Clone(t *testing.T) {
 				Position:  Position("standing"),
 				Operation: OperationUpdate,
 				Metadata:  Metadata{"foo": "bar"},
-				Key:       RawData{Raw: []byte("padlock-key")},
+				Key:       RawData("padlock-key"),
 				Payload: Change{
-					Before: RawData{Raw: []byte("yellow")},
+					Before: RawData("yellow"),
 					After: StructuredData{
 						"bool": true,
 
@@ -70,11 +71,9 @@ func TestRecord_Clone(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			is := is.New(t)
 			got := tc.input.Clone()
-			if !cmp.Equal(tc.input, got) {
-				t.Logf("diff: %v\n", cmp.Diff(tc.input, got))
-				t.Fail() // clone not equal to original
-			}
+			is.Equal(cmp.Diff(tc.input, got, cmpopts.IgnoreUnexported(Record{})), "")
 		})
 	}
 }
@@ -88,7 +87,7 @@ func TestRecord_Bytes(t *testing.T) {
 		Metadata: Metadata{
 			MetadataConduitSourcePluginName: "example",
 		},
-		Key: RawData{Raw: []byte("bar")},
+		Key: RawData("bar"),
 		Payload: Change{
 			Before: nil,
 			After: StructuredData{
@@ -98,10 +97,10 @@ func TestRecord_Bytes(t *testing.T) {
 		},
 	}
 
-	want := `{"position":"Zm9v","operation":"create","metadata":{"conduit.source.plugin.name":"example","opencdc.version":"v1"},"key":"YmFy","payload":{"before":null,"after":{"baz":"qux","foo":"bar"}}}`
+	want := `{"position":"Zm9v","operation":"create","metadata":{"conduit.source.plugin.name":"example"},"key":"YmFy","payload":{"before":null,"after":{"baz":"qux","foo":"bar"}}}`
 
 	got := string(r.Bytes())
-	is.Equal(got, want)
+	is.Equal(cmp.Diff(want, got), "")
 
 	is.Equal(r.Metadata, Metadata{MetadataConduitSourcePluginName: "example"}) // expected metadata to stay unaltered
 }
@@ -115,7 +114,7 @@ func TestRecord_ToMap(t *testing.T) {
 		Metadata: Metadata{
 			MetadataConduitSourcePluginName: "example",
 		},
-		Key: RawData{Raw: []byte("bar")},
+		Key: RawData("bar"),
 		Payload: Change{
 			Before: nil,
 			After: StructuredData{

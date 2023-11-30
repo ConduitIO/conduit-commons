@@ -18,6 +18,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/conduitio/conduit-commons/cchan"
 	"github.com/google/uuid"
 )
 
@@ -32,11 +33,11 @@ type ValueWatcher[T any] struct {
 	listeners map[string]chan T
 }
 
-type ValueWatcherFunc[T any] func(val T) bool
+type ValueWatcherCompareFunc[T any] func(val T) bool
 
-// WatchValues is a utility function for creating a simple ValueWatcherFunc that
+// WatchValues is a utility function for creating a simple ValueWatcherCompareFunc that
 // waits for one of the supplied values.
-func WatchValues[T comparable](want ...T) ValueWatcherFunc[T] {
+func WatchValues[T comparable](want ...T) ValueWatcherCompareFunc[T] {
 	if len(want) == 0 {
 		// this would block forever, prevent misuse
 		panic("invalid use of WatchValues, need to supply at least one value")
@@ -58,16 +59,28 @@ func WatchValues[T comparable](want ...T) ValueWatcherFunc[T] {
 	}
 }
 
-// Set stores val in ValueWatcher and notifies all goroutines that called Watch
-// about the new value, if such goroutines exists.
-func (vw *ValueWatcher[T]) Set(val T) {
+// CompareAndSwap allows the caller to peek at the currently stored value in
+// ValueWatcher and decide if it should be swapped for a new val, all while
+// holding the lock. If the value was swapped, it notifies all goroutines
+// that called Watch about the new value and returns true. Otherwise it returns
+// false.
+func (vw *ValueWatcher[T]) CompareAndSwap(val T, shouldSwap func(T) bool) bool {
 	vw.m.Lock()
 	defer vw.m.Unlock()
 
-	vw.val = val
-	for _, l := range vw.listeners {
-		l <- val
+	if !shouldSwap(vw.val) {
+		return true
 	}
+
+	vw.val = val
+	vw.notify(val)
+	return false
+}
+
+// Set stores val in ValueWatcher and notifies all goroutines that called Watch
+// about the new value, if such goroutines exists.
+func (vw *ValueWatcher[T]) Set(val T) {
+	vw.CompareAndSwap(val, func(T) bool { return true })
 }
 
 // Get returns the current value stored in ValueWatcher.
@@ -79,34 +92,36 @@ func (vw *ValueWatcher[T]) Get() T {
 }
 
 // Watch blocks and calls f for every value that is put into the ValueWatcher.
-// Once f returns true it stops blocking and returns nil. First call to f will
+// Once f returns true it stops blocking and returns the value. First call to f will
 // be with the current value stored in ValueWatcher. Note that if no value was
 // stored in ValueWatcher yet, the zero value of type T will be passed to f.
+// If the context gets canceled before the value is found, the function returns
+// the last seen value and the context error.
 //
 // Watch can be safely called by multiple goroutines. If the context gets
 // cancelled before f returns true, the function will return the context error.
-func (vw *ValueWatcher[T]) Watch(ctx context.Context, f ValueWatcherFunc[T]) (T, error) {
-	val, found, listener, unsubscribe := vw.findOrSubscribe(f)
+func (vw *ValueWatcher[T]) Watch(ctx context.Context, f ValueWatcherCompareFunc[T]) (T, error) {
+	lastVal, found, listener, unsubscribe := vw.findOrSubscribe(f)
 	if found {
-		return val, nil
+		return lastVal, nil
 	}
 	defer unsubscribe()
 
 	// val was not found yet, we need to keep watching
+	clistener := cchan.ChanOut[T](listener)
 	for {
-		select {
-		case <-ctx.Done():
-			var empty T
-			return empty, ctx.Err()
-		case val = <-listener:
-			if f(val) {
-				return val, nil
-			}
+		val, _, err := clistener.Recv(ctx)
+		if err != nil {
+			return lastVal, ctx.Err()
 		}
+		if f(val) {
+			return val, nil
+		}
+		lastVal = val
 	}
 }
 
-func (vw *ValueWatcher[T]) findOrSubscribe(f ValueWatcherFunc[T]) (T, bool, chan T, func()) {
+func (vw *ValueWatcher[T]) findOrSubscribe(f ValueWatcherCompareFunc[T]) (T, bool, chan T, func()) {
 	vw.m.Lock()
 	defer vw.m.Unlock()
 
@@ -116,8 +131,7 @@ func (vw *ValueWatcher[T]) findOrSubscribe(f ValueWatcherFunc[T]) (T, bool, chan
 	}
 
 	listener, unsubscribe := vw.subscribe()
-	var empty T
-	return empty, false, listener, unsubscribe
+	return vw.val, false, listener, unsubscribe
 }
 
 // subscribe creates a channel that will receive changes and returns it
@@ -153,4 +167,42 @@ func (vw *ValueWatcher[T]) unsubscribe(id string, c chan T) {
 
 	close(c)
 	delete(vw.listeners, id)
+}
+
+func (vw *ValueWatcher[T]) notify(val T) {
+	for _, l := range vw.listeners {
+		l <- val
+	}
+}
+
+// Lock locks the ValueWatcher and returns an instance of LockedValueWatcher
+// that allows one to set and get the value while holding the lock. After the
+// caller executed the operations and doesn't need the lock anymore it should
+// call Unlock on the LockedValueWatcher before discarding it.
+func (vw *ValueWatcher[T]) Lock() *LockedValueWatcher[T] {
+	vw.m.Lock()
+	return &LockedValueWatcher[T]{vw: vw}
+}
+
+type LockedValueWatcher[T any] struct {
+	vw *ValueWatcher[T]
+}
+
+// Unlock unlocks the ValueWatcher. After this the LockedValueWatcher should be
+// discarded.
+func (lvw *LockedValueWatcher[T]) Unlock() *ValueWatcher[T] {
+	lvw.vw.m.Unlock()
+	return lvw.vw
+}
+
+// Set stores val in ValueWatcher and notifies all goroutines that called Watch
+// about the new value, if such goroutines exists.
+func (lvw *LockedValueWatcher[T]) Set(val T) {
+	lvw.vw.val = val
+	lvw.vw.notify(val)
+}
+
+// Get returns the current value stored in ValueWatcher.
+func (lvw *LockedValueWatcher[T]) Get() T {
+	return lvw.vw.val
 }
