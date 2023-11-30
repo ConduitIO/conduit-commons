@@ -27,3 +27,4 @@ jobs:
         uses: golangci/golangci-lint-action@v3
         with:
           version: ${{ steps.golangci-lint-version.outputs.v }}
+          skip-pkg-cache: true
