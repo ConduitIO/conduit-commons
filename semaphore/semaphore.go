@@ -1,4 +1,4 @@
-// Copyright © 2022 Meroxa, Inc.
+// Copyright © 2023 Meroxa, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -59,11 +59,11 @@ func (s *Simple) Enqueue() Ticket {
 			return make(chan int, 1) // make it buffered to not block the release of a lock
 		}
 
-		s.last.next = s.chanPool.Get().(chan int)
-		s.last.next <- s.last.i + 1 // first lock can be acquired right away
+		s.last.next = s.chanPool.Get().(chan int) //nolint:forcetypeassert // we know what the pool returns
+		s.last.next <- s.last.i + 1               // first lock can be acquired right away
 	})
 
-	t := Ticket{
+	t := Ticket{ //nolint:forcetypeassert // we know what the pool returns
 		l: Lock{
 			i:    s.last.i + 1,
 			next: s.chanPool.Get().(chan int),

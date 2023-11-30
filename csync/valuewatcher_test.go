@@ -199,7 +199,7 @@ func TestValueWatcher_Concurrency(t *testing.T) {
 	wg1.Add(watcherCount)
 	wg2.Add(watcherCount)
 	for i := 0; i < watcherCount; i++ {
-		go func(i int) {
+		go func() {
 			defer wg2.Done()
 			var once sync.Once
 			var count int
@@ -211,7 +211,7 @@ func TestValueWatcher_Concurrency(t *testing.T) {
 			})
 			is.NoErr(err)
 			is.Equal(count, (setterCount*setCount)+1)
-		}(i)
+		}()
 	}
 
 	// wait for all watchers to be subscribed

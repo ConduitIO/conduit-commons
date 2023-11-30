@@ -1,4 +1,4 @@
-// Copyright © 2022 Meroxa, Inc.
+// Copyright © 2023 Meroxa, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -53,7 +53,7 @@ import (
 // context but detaches from the cancellation and error handling.
 func DetachContext(ctx context.Context) context.Context { return detachedContext{ctx} }
 
-type detachedContext struct{ context.Context }
+type detachedContext struct{ context.Context } //nolint:containedctx // we are wrapping a context
 
 func (v detachedContext) Deadline() (time.Time, bool) { return time.Time{}, false }
 func (v detachedContext) Done() <-chan struct{}       { return nil }

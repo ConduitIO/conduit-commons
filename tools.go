@@ -12,17 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package opencdc
+//go:build tools
+
+package main
 
 import (
-	"errors"
-)
-
-var (
-	// ErrMetadataFieldNotFound is returned in metadata utility functions when a
-	// metadata field is not found.
-	ErrMetadataFieldNotFound = errors.New("metadata field not found")
-	// ErrUnknownOperation is returned when trying to parse an Operation string
-	// and encountering an unknown operation.
-	ErrUnknownOperation = errors.New("unknown operation")
+	_ "github.com/golangci/golangci-lint/cmd/golangci-lint"
+	_ "golang.org/x/tools/cmd/stringer"
+	_ "mvdan.cc/gofumpt"
 )

@@ -56,7 +56,7 @@ func (wg *WaitGroup) Wait(ctx context.Context) error {
 		close(done)
 	}()
 	_, _, err := cchan.ChanOut[struct{}](done).Recv(ctx)
-	return err
+	return err //nolint:wrapcheck // errors from cchan are already wrapped
 }
 
 // WaitTimeout blocks until the WaitGroup counter is zero. If the context gets
