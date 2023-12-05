@@ -14,7 +14,7 @@
 
 package opencdc
 
-// Position is a unique identifier for a record being process.
+// Position is a unique identifier for a record being processed.
 // It's a Source's responsibility to choose and assign record positions,
 // as they will be used by the Source in subsequent pipeline runs.
 type Position []byte

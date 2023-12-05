@@ -142,3 +142,45 @@ func TestRecord_ToMap(t *testing.T) {
 	}
 	is.Equal(want, got)
 }
+
+func BenchmarkRecord_Clone(b *testing.B) {
+	type user struct {
+		Name string
+	}
+
+	r1 := Record{
+		Position:  Position("standing"),
+		Operation: OperationUpdate,
+		Metadata:  Metadata{"foo": "bar"},
+		Key:       RawData("padlock-key"),
+		Payload: Change{
+			Before: RawData("yellow"),
+			After: StructuredData{
+				"bool": true,
+
+				"int":   1,
+				"int8":  int8(1),
+				"int16": int16(1),
+				"int32": int32(1),
+				"int64": int64(1),
+
+				"float32": float32(1.2),
+				"float64": 1.2,
+
+				"string": "orange",
+
+				"string-slice": []string{"a"},
+				"map":          map[string]string{"a": "A", "b": "B"},
+
+				"user": user{Name: "john"},
+			},
+		},
+	}
+	var r2 Record
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		r2 = r1.Clone()
+	}
+	_ = r2
+}

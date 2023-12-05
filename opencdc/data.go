@@ -16,8 +16,9 @@ package opencdc
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
+
+	"github.com/goccy/go-json"
 )
 
 // Data is a structure that contains some bytes. The only structs implementing

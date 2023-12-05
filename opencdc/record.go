@@ -16,8 +16,9 @@ package opencdc
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
+
+	"github.com/goccy/go-json"
 )
 
 // Record represents a single data record produced by a source and/or consumed
@@ -30,7 +31,7 @@ type Record struct {
 	// operations are encountered during normal CDC operation, while "snapshot"
 	// is meant to represent records during an initial load. Depending on the
 	// operation, the record will contain either the payload before the change,
-	// after the change, or both (see field Payload).
+	// after the change, both or none (see field Payload).
 	Operation Operation `json:"operation"`
 	// Metadata contains additional information regarding the record.
 	Metadata Metadata `json:"metadata"`
@@ -45,9 +46,17 @@ type Record struct {
 	serializer RecordSerializer
 }
 
+// WithSerializer returns a new record which is serialized using the provided
+// serializer when Bytes gets called. If serializer is nil, the serializing
+// behavior is reset to the default (JSON).
+func (r Record) WithSerializer(serializer RecordSerializer) Record {
+	r.serializer = serializer
+	return r
+}
+
 // Bytes returns the serialized representation of the Record. By default, this
-// function returns a JSON representation. The serialization can be changed
-// using SetSerializer.
+// function returns a JSON representation. The serialization logic can be changed
+// using WithSerializer.
 func (r Record) Bytes() []byte {
 	if r.serializer != nil {
 		b, err := r.serializer.Serialize(r)
