@@ -6,10 +6,10 @@ require (
 	github.com/goccy/go-json v0.10.2
 	github.com/golangci/golangci-lint v1.55.2
 	github.com/google/go-cmp v0.6.0
-	github.com/google/uuid v1.4.0
+	github.com/google/uuid v1.5.0
 	github.com/matryer/is v1.4.1
 	go.uber.org/goleak v1.3.0
-	golang.org/x/tools v0.16.0
+	golang.org/x/tools v0.16.1
 	mvdan.cc/gofumpt v0.5.0
 )
 
