@@ -18,6 +18,8 @@ import (
 	"bytes"
 	"fmt"
 
+	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
+
 	"github.com/goccy/go-json"
 )
 
@@ -27,6 +29,7 @@ type Data interface {
 	isData() // Ensure structs outside of this package can't implement this interface.
 	Bytes() []byte
 	Clone() Data
+	ToProto(*opencdcv1.Data) error
 }
 
 type Change struct {
