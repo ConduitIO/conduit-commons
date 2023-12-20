@@ -1,0 +1,10 @@
+version: v1
+managed:
+  enabled: true
+  go_package_prefix:
+    default: "github.com/conduitio/conduit-commons/proto"
+plugins:
+  - plugin: buf.build/protocolbuffers/go:v1.29.1
+    out: .
+    opt:
+      - paths=source_relative
