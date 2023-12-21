@@ -14,7 +14,11 @@
 
 package opencdc
 
-import "github.com/goccy/go-json"
+import (
+	"fmt"
+
+	"github.com/goccy/go-json"
+)
 
 func (r *Record) UnmarshalJSON(b []byte) error {
 	var raw struct {
@@ -30,7 +34,7 @@ func (r *Record) UnmarshalJSON(b []byte) error {
 
 	err := json.Unmarshal(b, &raw)
 	if err != nil {
-		return err
+		return err //nolint:wrapcheck // no additional context to add
 	}
 
 	key, err := dataUnmarshalJSON(raw.Key)
@@ -64,10 +68,15 @@ func dataUnmarshalJSON(b []byte) (Data, error) {
 	if b[0] == '"' {
 		var data RawData
 		err := json.Unmarshal(b, &data)
-		return data, err
-	} else {
-		var data StructuredData
-		err := json.Unmarshal(b, &data)
-		return data, err
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal raw data: %w", err)
+		}
+		return data, nil
 	}
+	var data StructuredData
+	err := json.Unmarshal(b, &data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal structured data: %w", err)
+	}
+	return data, nil
 }

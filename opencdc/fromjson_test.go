@@ -25,7 +25,7 @@ import (
 
 func TestRecord_UnmarshalJSON(t *testing.T) {
 	is := is.New(t)
-	want := Record{
+	have := Record{
 		Position:  Position("standing"),
 		Operation: OperationUpdate,
 		Metadata:  Metadata{"foo": "bar"},
@@ -46,7 +46,29 @@ func TestRecord_UnmarshalJSON(t *testing.T) {
 			},
 		},
 	}
-	b, err := json.Marshal(want)
+	want := Record{
+		Position:  Position("standing"),
+		Operation: OperationUpdate,
+		Metadata:  Metadata{"foo": "bar"},
+		Key:       RawData("padlock-key"),
+		Payload: Change{
+			Before: RawData("yellow"),
+			After: StructuredData{
+				"bool": true,
+
+				"int":   1.0,
+				"int32": 1.0,
+				"int64": 1.0,
+
+				"float32": 1.2,
+				"float64": 1.2,
+
+				"string": "orange",
+			},
+		},
+	}
+
+	b, err := json.Marshal(have)
 	is.NoErr(err)
 
 	var got Record
