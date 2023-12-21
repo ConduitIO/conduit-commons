@@ -16,10 +16,8 @@ package opencdc
 
 import (
 	"fmt"
-	"unicode/utf8"
 
 	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
-	"google.golang.org/protobuf/runtime/protoimpl"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -54,8 +52,8 @@ func (r Record) ToProto(proto *opencdcv1.Record) error {
 	}
 
 	proto.Position = r.Position
-	proto.Operation = opencdcv1.Operation(r.Operation)
 	proto.Metadata = r.Metadata
+	proto.Operation = opencdcv1.Operation(r.Operation)
 	return nil
 }
 
@@ -103,24 +101,10 @@ func (d StructuredData) ToProto(proto *opencdcv1.Data) error {
 		protoStructuredData = &opencdcv1.Data_StructuredData{}
 		proto.Data = protoStructuredData
 	}
-
-	data := protoStructuredData.StructuredData
-	if data == nil {
-		protoStructuredData.StructuredData = &structpb.Struct{
-			Fields: make(map[string]*structpb.Value, len(d)),
-		}
-		data = protoStructuredData.StructuredData
+	data, err := structpb.NewStruct(d)
+	if err != nil {
+		return err
 	}
-
-	for k, v := range d {
-		if !utf8.ValidString(k) {
-			return protoimpl.X.NewError("invalid UTF-8 in string: %q", k)
-		}
-		var err error
-		data.Fields[k], err = structpb.NewValue(v)
-		if err != nil {
-			return err
-		}
-	}
+	protoStructuredData.StructuredData = data
 	return nil
 }

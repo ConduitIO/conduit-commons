@@ -15,6 +15,7 @@
 package opencdc
 
 import (
+	"fmt"
 	"testing"
 
 	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
@@ -67,15 +68,15 @@ func TestRecord_ToProto(t *testing.T) {
 
 	// writing another record to the same target should overwrite the previous
 
-	want = opencdcv1.Record{
+	want2 := opencdcv1.Record{
 		Payload: &opencdcv1.Change{}, // there's always a change
 	}
 	err = Record{}.ToProto(&got)
 	is.NoErr(err)
-	is.Equal(got, want)
+	is.Equal(got, want2)
 }
 
-func BenchmarkRecord_ToProto(b *testing.B) {
+func BenchmarkRecord_ToProto_Structured(b *testing.B) {
 	r1 := Record{
 		Position:  Position("standing"),
 		Operation: OperationUpdate,
@@ -97,6 +98,7 @@ func BenchmarkRecord_ToProto(b *testing.B) {
 			},
 		},
 	}
+
 	// reuse the same target record
 	var r2 opencdcv1.Record
 
@@ -105,4 +107,30 @@ func BenchmarkRecord_ToProto(b *testing.B) {
 		_ = r1.ToProto(&r2)
 	}
 	_ = r2
+}
+
+func BenchmarkRecord_ToProto_Raw(b *testing.B) {
+	for _, size := range []int{1, 100, 10000, 1000000} {
+		payload := make([]byte, size)
+		r1 := Record{
+			Position:  Position("standing"),
+			Operation: OperationUpdate,
+			Metadata:  Metadata{"foo": "bar"},
+			Key:       RawData("padlock-key"),
+			Payload: Change{
+				Before: RawData("yellow"),
+				After:  RawData(payload),
+			},
+		}
+
+		b.Run(fmt.Sprintf("%d", size), func(b *testing.B) {
+			// reuse the same target record
+			var r2 opencdcv1.Record
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = r1.ToProto(&r2)
+			}
+			_ = r2
+		})
+	}
 }
