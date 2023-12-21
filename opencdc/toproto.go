@@ -103,7 +103,7 @@ func (d StructuredData) ToProto(proto *opencdcv1.Data) error {
 	}
 	data, err := structpb.NewStruct(d)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not convert structured data to proto: %w", err)
 	}
 	protoStructuredData.StructuredData = data
 	return nil

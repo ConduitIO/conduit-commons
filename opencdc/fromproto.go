@@ -15,7 +15,6 @@
 package opencdc
 
 import (
-	"errors"
 	"fmt"
 
 	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
@@ -79,7 +78,7 @@ func (c *Change) FromProto(proto *opencdcv1.Change) error {
 
 func dataFromProto(proto *opencdcv1.Data) (Data, error) {
 	if proto == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // This is the expected behavior.
 	}
 
 	switch v := proto.Data.(type) {
@@ -88,8 +87,8 @@ func dataFromProto(proto *opencdcv1.Data) (Data, error) {
 	case *opencdcv1.Data_StructuredData:
 		return StructuredData(v.StructuredData.AsMap()), nil
 	case nil:
-		return nil, nil
+		return nil, nil //nolint:nilnil // This is the expected behavior.
 	default:
-		return nil, errors.New("invalid Data type")
+		return nil, ErrInvalidProtoDataType
 	}
 }

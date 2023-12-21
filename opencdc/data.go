@@ -19,7 +19,6 @@ import (
 	"fmt"
 
 	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
-
 	"github.com/goccy/go-json"
 )
 

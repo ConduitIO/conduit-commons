@@ -90,5 +90,4 @@ message Data {
     // Structured data contains data in form of a struct with fields.
     google.protobuf.Struct structured_data = 2;
   }
-  // TODO schema will be added here in future iterations.
 }

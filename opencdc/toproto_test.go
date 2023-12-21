@@ -50,7 +50,7 @@ func TestRecord_ToProto(t *testing.T) {
 
 	after, err := structpb.NewStruct(r1.Payload.After.(StructuredData))
 	is.NoErr(err)
-	want := opencdcv1.Record{
+	want := &opencdcv1.Record{
 		Position:  r1.Position,
 		Operation: opencdcv1.Operation(r1.Operation),
 		Metadata:  r1.Metadata,
@@ -64,16 +64,16 @@ func TestRecord_ToProto(t *testing.T) {
 	var got opencdcv1.Record
 	err = r1.ToProto(&got)
 	is.NoErr(err)
-	is.Equal(got, want)
+	is.Equal(&got, want)
 
 	// writing another record to the same target should overwrite the previous
 
-	want2 := opencdcv1.Record{
+	want2 := &opencdcv1.Record{
 		Payload: &opencdcv1.Change{}, // there's always a change
 	}
 	err = Record{}.ToProto(&got)
 	is.NoErr(err)
-	is.Equal(got, want2)
+	is.Equal(&got, want2)
 }
 
 func BenchmarkRecord_ToProto_Structured(b *testing.B) {
@@ -106,7 +106,6 @@ func BenchmarkRecord_ToProto_Structured(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = r1.ToProto(&r2)
 	}
-	_ = r2
 }
 
 func BenchmarkRecord_ToProto_Raw(b *testing.B) {
@@ -130,7 +129,6 @@ func BenchmarkRecord_ToProto_Raw(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				_ = r1.ToProto(&r2)
 			}
-			_ = r2
 		})
 	}
 }

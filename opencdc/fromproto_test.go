@@ -32,18 +32,20 @@ func TestRecord_FromProto(t *testing.T) {
 		Key:       &opencdcv1.Data{Data: &opencdcv1.Data_RawData{RawData: []byte("padlock-key")}},
 		Payload: &opencdcv1.Change{
 			Before: &opencdcv1.Data{Data: &opencdcv1.Data_RawData{RawData: []byte("yellow")}},
-			After: &opencdcv1.Data{Data: &opencdcv1.Data_StructuredData{StructuredData: &structpb.Struct{
-				Fields: map[string]*structpb.Value{
-					"bool":    {Kind: &structpb.Value_BoolValue{BoolValue: true}},
-					"int":     {Kind: &structpb.Value_NumberValue{NumberValue: 1}},
-					"int32":   {Kind: &structpb.Value_NumberValue{NumberValue: 1}},
-					"int64":   {Kind: &structpb.Value_NumberValue{NumberValue: 1}},
-					"float32": {Kind: &structpb.Value_NumberValue{NumberValue: 1.2}},
-					"float64": {Kind: &structpb.Value_NumberValue{NumberValue: 1.2}},
-					"string":  {Kind: &structpb.Value_StringValue{StringValue: "orange"}},
-				},
-			}},
-			}},
+			After: &opencdcv1.Data{
+				Data: &opencdcv1.Data_StructuredData{StructuredData: &structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"bool":    {Kind: &structpb.Value_BoolValue{BoolValue: true}},
+						"int":     {Kind: &structpb.Value_NumberValue{NumberValue: 1}},
+						"int32":   {Kind: &structpb.Value_NumberValue{NumberValue: 1}},
+						"int64":   {Kind: &structpb.Value_NumberValue{NumberValue: 1}},
+						"float32": {Kind: &structpb.Value_NumberValue{NumberValue: 1.2}},
+						"float64": {Kind: &structpb.Value_NumberValue{NumberValue: 1.2}},
+						"string":  {Kind: &structpb.Value_StringValue{StringValue: "orange"}},
+					},
+				}},
+			},
+		},
 	}
 
 	want := Record{
@@ -78,18 +80,20 @@ func BenchmarkRecord_FromProto_Structured(b *testing.B) {
 		Key:       &opencdcv1.Data{Data: &opencdcv1.Data_RawData{RawData: []byte("padlock-key")}},
 		Payload: &opencdcv1.Change{
 			Before: &opencdcv1.Data{Data: &opencdcv1.Data_RawData{RawData: []byte("yellow")}},
-			After: &opencdcv1.Data{Data: &opencdcv1.Data_StructuredData{StructuredData: &structpb.Struct{
-				Fields: map[string]*structpb.Value{
-					"bool":    {Kind: &structpb.Value_BoolValue{BoolValue: true}},
-					"int":     {Kind: &structpb.Value_NumberValue{NumberValue: 1}},
-					"int32":   {Kind: &structpb.Value_NumberValue{NumberValue: 1}},
-					"int64":   {Kind: &structpb.Value_NumberValue{NumberValue: 1}},
-					"float32": {Kind: &structpb.Value_NumberValue{NumberValue: 1.2}},
-					"float64": {Kind: &structpb.Value_NumberValue{NumberValue: 1.2}},
-					"string":  {Kind: &structpb.Value_StringValue{StringValue: "orange"}},
-				},
-			}},
-			}},
+			After: &opencdcv1.Data{
+				Data: &opencdcv1.Data_StructuredData{StructuredData: &structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"bool":    {Kind: &structpb.Value_BoolValue{BoolValue: true}},
+						"int":     {Kind: &structpb.Value_NumberValue{NumberValue: 1}},
+						"int32":   {Kind: &structpb.Value_NumberValue{NumberValue: 1}},
+						"int64":   {Kind: &structpb.Value_NumberValue{NumberValue: 1}},
+						"float32": {Kind: &structpb.Value_NumberValue{NumberValue: 1.2}},
+						"float64": {Kind: &structpb.Value_NumberValue{NumberValue: 1.2}},
+						"string":  {Kind: &structpb.Value_StringValue{StringValue: "orange"}},
+					},
+				}},
+			},
+		},
 	}
 
 	// reuse the same target record
