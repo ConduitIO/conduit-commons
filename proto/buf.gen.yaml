@@ -4,7 +4,7 @@ managed:
   go_package_prefix:
     default: "github.com/conduitio/conduit-commons/proto"
 plugins:
-  - plugin: buf.build/protocolbuffers/go:v1.29.1
+  - plugin: buf.build/protocolbuffers/go:v1.31.0
     out: .
     opt:
       - paths=source_relative
