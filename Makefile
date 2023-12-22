@@ -19,3 +19,7 @@ install-tools:
 .PHONY: generate
 generate:
 	go generate ./...
+
+.PHONY: buf
+buf:
+	cd proto && buf generate
