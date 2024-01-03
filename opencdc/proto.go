@@ -17,9 +17,8 @@ package opencdc
 import (
 	"fmt"
 
-	"google.golang.org/protobuf/types/known/structpb"
-
 	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func _() {
