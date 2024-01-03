@@ -19,6 +19,5 @@ jobs:
       - name: Check generated files
         run: |
           export PATH=$PATH:$(go env GOPATH)/bin
-          make install-tools
-          make generate
+          make install-tools generate buf
           git diff --exit-code --numstat

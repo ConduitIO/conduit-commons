@@ -1,0 +1,8 @@
+version: v1
+name: buf.build/conduitio/conduit-commons
+lint:
+  use:
+    - DEFAULT
+breaking:
+  use:
+    - FILE

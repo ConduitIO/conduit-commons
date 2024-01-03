@@ -25,4 +25,8 @@ var (
 	// ErrUnknownOperation is returned when trying to parse an Operation string
 	// and encountering an unknown operation.
 	ErrUnknownOperation = errors.New("unknown operation")
+
+	// ErrInvalidProtoDataType is returned when trying to convert a proto data
+	// type to raw or structured data.
+	ErrInvalidProtoDataType = errors.New("invalid proto data type")
 )
