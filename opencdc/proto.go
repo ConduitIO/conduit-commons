@@ -17,8 +17,9 @@ package opencdc
 import (
 	"fmt"
 
-	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
 	"google.golang.org/protobuf/types/known/structpb"
+
+	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
 )
 
 func _() {
@@ -30,6 +31,83 @@ func _() {
 	_ = cTypes[int(OperationSnapshot)-int(opencdcv1.Operation_OPERATION_SNAPSHOT)]
 }
 
+// -- From Proto To OpenCDC ----------------------------------------------------
+
+// FromProto takes data from the supplied proto object and populates the
+// receiver. If the proto object is nil, the receiver is set to its zero value.
+// If the function returns an error, the receiver could be partially populated.
+func (r *Record) FromProto(proto *opencdcv1.Record) error {
+	if proto == nil {
+		*r = Record{}
+		return nil
+	}
+
+	var err error
+	r.Key, err = dataFromProto(proto.Key)
+	if err != nil {
+		return fmt.Errorf("error converting key: %w", err)
+	}
+
+	if proto.Payload != nil {
+		err := r.Payload.FromProto(proto.Payload)
+		if err != nil {
+			return fmt.Errorf("error converting payload: %w", err)
+		}
+	} else {
+		r.Payload = Change{}
+	}
+
+	r.Position = proto.Position
+	r.Metadata = proto.Metadata
+	r.Operation = Operation(proto.Operation)
+	return nil
+}
+
+// FromProto takes data from the supplied proto object and populates the
+// receiver. If the proto object is nil, the receiver is set to its zero value.
+// If the function returns an error, the receiver could be partially populated.
+func (c *Change) FromProto(proto *opencdcv1.Change) error {
+	if proto == nil {
+		*c = Change{}
+		return nil
+	}
+
+	var err error
+	c.Before, err = dataFromProto(proto.Before)
+	if err != nil {
+		return fmt.Errorf("error converting before: %w", err)
+	}
+
+	c.After, err = dataFromProto(proto.After)
+	if err != nil {
+		return fmt.Errorf("error converting after: %w", err)
+	}
+
+	return nil
+}
+
+func dataFromProto(proto *opencdcv1.Data) (Data, error) {
+	if proto == nil {
+		return nil, nil //nolint:nilnil // This is the expected behavior.
+	}
+
+	switch v := proto.Data.(type) {
+	case *opencdcv1.Data_RawData:
+		return RawData(v.RawData), nil
+	case *opencdcv1.Data_StructuredData:
+		return StructuredData(v.StructuredData.AsMap()), nil
+	case nil:
+		return nil, nil //nolint:nilnil // This is the expected behavior.
+	default:
+		return nil, ErrInvalidProtoDataType
+	}
+}
+
+// -- From OpenCDC To Proto ----------------------------------------------------
+
+// ToProto takes data from the receiver and populates the supplied proto object.
+// If the function returns an error, the proto object could be partially
+// populated.
 func (r Record) ToProto(proto *opencdcv1.Record) error {
 	if r.Key != nil {
 		if proto.Key == nil {
@@ -57,6 +135,9 @@ func (r Record) ToProto(proto *opencdcv1.Record) error {
 	return nil
 }
 
+// ToProto takes data from the receiver and populates the supplied proto object.
+// If the function returns an error, the proto object could be partially
+// populated.
 func (c Change) ToProto(proto *opencdcv1.Change) error {
 	if c.Before != nil {
 		if proto.Before == nil {
@@ -85,6 +166,7 @@ func (c Change) ToProto(proto *opencdcv1.Change) error {
 	return nil
 }
 
+// ToProto takes data from the receiver and populates the supplied proto object.
 func (d RawData) ToProto(proto *opencdcv1.Data) error {
 	protoRawData, ok := proto.Data.(*opencdcv1.Data_RawData)
 	if !ok {
@@ -95,6 +177,7 @@ func (d RawData) ToProto(proto *opencdcv1.Data) error {
 	return nil
 }
 
+// ToProto takes data from the receiver and populates the supplied proto object.
 func (d StructuredData) ToProto(proto *opencdcv1.Data) error {
 	protoStructuredData, ok := proto.Data.(*opencdcv1.Data_StructuredData)
 	if !ok {

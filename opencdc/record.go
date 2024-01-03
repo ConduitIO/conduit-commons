@@ -23,6 +23,10 @@ import (
 
 // Record represents a single data record produced by a source and/or consumed
 // by a destination connector.
+// Record should be used as a value, not a pointer, except when (de)serializing
+// the record. Note that methods related to (de)serializing the record mutate
+// the record and are thus not thread-safe (see SetSerializer, FromProto and
+// UnmarshalJSON).
 type Record struct {
 	// Position uniquely represents the record.
 	Position Position `json:"position"`
@@ -46,17 +50,16 @@ type Record struct {
 	serializer RecordSerializer
 }
 
-// WithSerializer returns a new record which is serialized using the provided
-// serializer when Bytes gets called. If serializer is nil, the serializing
-// behavior is reset to the default (JSON).
-func (r Record) WithSerializer(serializer RecordSerializer) Record {
+// SetSerializer sets the serializer used to encode the record into bytes. If
+// serializer is nil, the serializing behavior is reset to the default (JSON).
+// This method mutates the receiver and is not thread-safe.
+func (r *Record) SetSerializer(serializer RecordSerializer) {
 	r.serializer = serializer
-	return r
 }
 
 // Bytes returns the serialized representation of the Record. By default, this
 // function returns a JSON representation. The serialization logic can be changed
-// using WithSerializer.
+// using SetSerializer.
 func (r Record) Bytes() []byte {
 	if r.serializer != nil {
 		b, err := r.serializer.Serialize(r)
