@@ -42,6 +42,14 @@ func TestRecord_FromProto(t *testing.T) {
 						"float32": {Kind: &structpb.Value_NumberValue{NumberValue: 1.2}},
 						"float64": {Kind: &structpb.Value_NumberValue{NumberValue: 1.2}},
 						"string":  {Kind: &structpb.Value_StringValue{StringValue: "orange"}},
+						"nested": {Kind: &structpb.Value_StructValue{StructValue: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"bool":    {Kind: &structpb.Value_BoolValue{BoolValue: true}},
+								"int":     {Kind: &structpb.Value_NumberValue{NumberValue: 2}},
+								"float32": {Kind: &structpb.Value_NumberValue{NumberValue: 2.3}},
+								"string":  {Kind: &structpb.Value_StringValue{StringValue: "blue"}},
+							},
+						}}},
 					},
 				}},
 			},

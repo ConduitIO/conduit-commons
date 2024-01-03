@@ -44,6 +44,12 @@ func TestRecord_ToProto(t *testing.T) {
 				"float64": 1.2,
 
 				"string": "orange",
+
+				"nested": map[string]any{
+					"bool":   true,
+					"float":  2.3,
+					"string": "blue",
+				},
 			},
 		},
 	}
