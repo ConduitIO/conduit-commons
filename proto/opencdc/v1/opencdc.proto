@@ -5,6 +5,8 @@ package opencdc.v1;
 import "google/protobuf/descriptor.proto";
 import "google/protobuf/struct.proto";
 
+option go_package = "github.com/conduitio/conduit-commons/proto/opencdc/v1";
+
 // CreatedAt can contain the time when the record was created in the 3rd party
 // system. The expected format is a unix timestamp in nanoseconds.
 option (metadata_created_at) = "opencdc.createdAt";
