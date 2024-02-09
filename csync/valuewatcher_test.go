@@ -203,7 +203,7 @@ func TestValueWatcher_Concurrency(t *testing.T) {
 			defer wg2.Done()
 			var once sync.Once
 			var count int
-			_, err := h.Watch(context.Background(), func(val int) bool {
+			_, err := h.Watch(context.Background(), func(int) bool {
 				once.Do(wg1.Done)
 				count++
 				// +1 because of first call
