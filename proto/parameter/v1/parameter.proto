@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package parameter.v1;
+
+// Parameter describes a single config parameter.
+message Parameter {
+  // Type shows the parameter type.
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    // Parameter is a string.
+    TYPE_STRING = 1;
+    // Parameter is an integer.
+    TYPE_INT = 2;
+    // Parameter is a float.
+    TYPE_FLOAT = 3;
+    // Parameter is a boolean.
+    TYPE_BOOL = 4;
+    // Parameter is a file.
+    TYPE_FILE = 5;
+    // Parameter is a duration.
+    TYPE_DURATION = 6;
+  }
+
+  // Default is the default value of the parameter. If there is no default
+  // value use an empty string.
+  string default = 1;
+  // Description explains what the parameter does and how to configure it.
+  string description = 2;
+  // Type defines the parameter data type.
+  Type type = 3;
+  // Validations are validations to be made on the parameter.
+  repeated Validation validations = 4;
+}
+
+// Validation to be made on the parameter.
+message Validation {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    // Parameter must be present.
+    TYPE_REQUIRED = 1;
+    // Parameter must be greater than {value}.
+    TYPE_GREATER_THAN = 2;
+    // Parameter must be less than {value}.
+    TYPE_LESS_THAN = 3;
+    // Parameter must be included in the comma separated list {value}.
+    TYPE_INCLUSION = 4;
+    // Parameter must not be included in the comma separated list {value}.
+    TYPE_EXCLUSION = 5;
+    // Parameter must match the regex {value}.
+    TYPE_REGEX = 6;
+  }
+
+  Type type = 1;
+  // The value to be compared with the parameter,
+  // or a comma separated list in case of Validation.TYPE_INCLUSION or Validation.TYPE_EXCLUSION.
+  string value = 2;
+}
