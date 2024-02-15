@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:generate stringer -type=ValidationType -linecomment
+
 package config
 
 import (
@@ -32,12 +34,12 @@ type Validation interface {
 type ValidationType int64
 
 const (
-	ValidationTypeRequired ValidationType = iota + 1
-	ValidationTypeGreaterThan
-	ValidationTypeLessThan
-	ValidationTypeInclusion
-	ValidationTypeExclusion
-	ValidationTypeRegex
+	ValidationTypeRequired    ValidationType = iota + 1 // required
+	ValidationTypeGreaterThan                           // greater-than
+	ValidationTypeLessThan                              // less-than
+	ValidationTypeInclusion                             // inclusion
+	ValidationTypeExclusion                             // exclusion
+	ValidationTypeRegex                                 // regex
 )
 
 type ValidationRequired struct{}

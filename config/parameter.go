@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:generate stringer -type=ParameterType -linecomment
+
 package config
 
 // Parameters is a map of all configuration parameters.
@@ -19,10 +21,10 @@ type Parameters map[string]Parameter
 
 // Parameter defines a single configuration parameter.
 type Parameter struct {
-	// Description holds a description of the field and how to configure it.
-	Description string
 	// Default is the default value of the parameter, if any.
 	Default string
+	// Description holds a description of the field and how to configure it.
+	Description string
 	// Type defines the parameter data type.
 	Type ParameterType
 	// Validations list of validations to check for the parameter.
@@ -32,10 +34,10 @@ type Parameter struct {
 type ParameterType int
 
 const (
-	ParameterTypeString ParameterType = iota + 1
-	ParameterTypeInt
-	ParameterTypeFloat
-	ParameterTypeBool
-	ParameterTypeFile
-	ParameterTypeDuration
+	ParameterTypeString   ParameterType = iota + 1 // string
+	ParameterTypeInt                               // int
+	ParameterTypeFloat                             // float
+	ParameterTypeBool                              // bool
+	ParameterTypeFile                              // file
+	ParameterTypeDuration                          // duration
 )

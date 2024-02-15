@@ -83,8 +83,8 @@ func (p *Parameter) FromProto(proto *parameterv1.Parameter) error {
 		return err
 	}
 
-	p.Description = proto.Description
 	p.Default = proto.Default
+	p.Description = proto.Description
 	p.Type = ParameterType(proto.Type)
 	return nil
 }
@@ -154,8 +154,8 @@ func (p Parameters) ToProto(proto map[string]*parameterv1.Parameter) {
 
 // ToProto takes data from the receiver and populates the supplied proto object.
 func (p Parameter) ToProto(proto *parameterv1.Parameter) {
-	proto.Description = p.Description
 	proto.Default = p.Default
+	proto.Description = p.Description
 	proto.Type = parameterv1.Parameter_Type(p.Type)
 	proto.Validations = validationsToProto(p.Validations)
 }
