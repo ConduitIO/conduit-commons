@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package parameter.v1;
+package config.v1;
 
 // Parameter describes a single config parameter.
 message Parameter {
