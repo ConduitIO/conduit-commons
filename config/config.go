@@ -99,22 +99,22 @@ func (c Config) validateParamType(key string, param Parameter) error {
 	case ParameterTypeInt:
 		_, err := strconv.Atoi(value)
 		if err != nil {
-			return fmt.Errorf("error validating %q: %q value is not an integer: %w", key, value, ErrInvalidParamType)
+			return fmt.Errorf("error validating %q: %q value is not an integer: %w", key, value, ErrInvalidParameterType)
 		}
 	case ParameterTypeFloat:
 		_, err := strconv.ParseFloat(value, 64)
 		if err != nil {
-			return fmt.Errorf("error validating %q: %q value is not a float: %w", key, value, ErrInvalidParamType)
+			return fmt.Errorf("error validating %q: %q value is not a float: %w", key, value, ErrInvalidParameterType)
 		}
 	case ParameterTypeDuration:
 		_, err := time.ParseDuration(value)
 		if err != nil {
-			return fmt.Errorf("error validating %q: %q value is not a duration: %w", key, value, ErrInvalidParamType)
+			return fmt.Errorf("error validating %q: %q value is not a duration: %w", key, value, ErrInvalidParameterType)
 		}
 	case ParameterTypeBool:
 		_, err := strconv.ParseBool(value)
 		if err != nil {
-			return fmt.Errorf("error validating %q: %q value is not a boolean: %w", key, value, ErrInvalidParamType)
+			return fmt.Errorf("error validating %q: %q value is not a boolean: %w", key, value, ErrInvalidParameterType)
 		}
 	}
 	return nil

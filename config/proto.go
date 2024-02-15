@@ -107,7 +107,7 @@ func validationsFromProto(proto []*parameterv1.Validation) ([]Validation, error)
 
 func validationFromProto(proto *parameterv1.Validation) (Validation, error) {
 	if proto == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // This is the expected behavior.
 	}
 
 	switch proto.Type {
@@ -135,8 +135,10 @@ func validationFromProto(proto *parameterv1.Validation) (Validation, error) {
 			return nil, fmt.Errorf("error compiling regex: %w", err)
 		}
 		return ValidationRegex{Regex: regex}, nil
+	case parameterv1.Validation_TYPE_UNSPECIFIED:
+		fallthrough
 	default:
-		return nil, fmt.Errorf("unknown validation type: %v", proto.Type)
+		return nil, fmt.Errorf("%v: %w", proto.Type, ErrInvalidValidationType)
 	}
 }
 

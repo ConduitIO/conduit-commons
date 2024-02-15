@@ -15,6 +15,7 @@
 package config
 
 import (
+	"errors"
 	"regexp"
 	"testing"
 
@@ -88,8 +89,6 @@ func TestParameter_ToProto(t *testing.T) {
 }
 
 func TestParameter_ParameterTypes(t *testing.T) {
-	is := is.New(t)
-
 	testCases := []struct {
 		protoType parameterv1.Parameter_Type
 		goType    ParameterType
@@ -106,7 +105,8 @@ func TestParameter_ParameterTypes(t *testing.T) {
 
 	t.Run("FromProto", func(t *testing.T) {
 		for _, tc := range testCases {
-			t.Run(tc.goType.String(), func(t *testing.T) {
+			t.Run(tc.goType.String(), func(*testing.T) {
+				is := is.New(t)
 				have := &parameterv1.Parameter{Type: tc.protoType}
 				want := Parameter{Type: tc.goType}
 
@@ -121,6 +121,7 @@ func TestParameter_ParameterTypes(t *testing.T) {
 	t.Run("ToProto", func(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.goType.String(), func(t *testing.T) {
+				is := is.New(t)
 				have := Parameter{Type: tc.goType}
 				want := &parameterv1.Parameter{Type: tc.protoType}
 
@@ -133,8 +134,6 @@ func TestParameter_ParameterTypes(t *testing.T) {
 }
 
 func TestParameter_Validation(t *testing.T) {
-	is := is.New(t)
-
 	testCases := []struct {
 		protoType *parameterv1.Validation
 		goType    Validation
@@ -168,6 +167,7 @@ func TestParameter_Validation(t *testing.T) {
 	t.Run("FromProto", func(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.goType.Type().String(), func(t *testing.T) {
+				is := is.New(t)
 				have := &parameterv1.Parameter{
 					Validations: []*parameterv1.Validation{tc.protoType},
 				}
@@ -186,6 +186,7 @@ func TestParameter_Validation(t *testing.T) {
 	t.Run("ToProto", func(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.goType.Type().String(), func(t *testing.T) {
+				is := is.New(t)
 				have := Parameter{
 					Validations: []Validation{tc.goType},
 				}
@@ -199,4 +200,16 @@ func TestParameter_Validation(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestParameter_Validation_InvalidType(t *testing.T) {
+	is := is.New(t)
+	have := &parameterv1.Parameter{
+		Validations: []*parameterv1.Validation{
+			{Type: parameterv1.Validation_TYPE_UNSPECIFIED},
+		},
+	}
+	var got Parameter
+	err := got.FromProto(have)
+	is.True(errors.Is(err, ErrInvalidValidationType))
 }

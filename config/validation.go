@@ -62,7 +62,7 @@ func (v ValidationGreaterThan) Value() string        { return strconv.FormatFloa
 func (v ValidationGreaterThan) Validate(value string) error {
 	val, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		return fmt.Errorf("%q value should be a number: %w", value, ErrInvalidParamValue)
+		return fmt.Errorf("%q value should be a number: %w", value, ErrInvalidParameterValue)
 	}
 	if !(val > v.V) {
 		formatted := strconv.FormatFloat(v.V, 'f', -1, 64)
@@ -80,7 +80,7 @@ func (v ValidationLessThan) Value() string        { return strconv.FormatFloat(v
 func (v ValidationLessThan) Validate(value string) error {
 	val, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		return fmt.Errorf("%q value should be a number: %w", value, ErrInvalidParamValue)
+		return fmt.Errorf("%q value should be a number: %w", value, ErrInvalidParameterValue)
 	}
 	if !(val < v.V) {
 		formatted := strconv.FormatFloat(v.V, 'f', -1, 64)

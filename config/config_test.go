@@ -102,7 +102,7 @@ func TestConfig_Validate_ParameterType(t *testing.T) {
 				Validate(tt.params)
 
 			if err != nil && tt.wantErr {
-				is.True(errors.Is(err, ErrInvalidParamType))
+				is.True(errors.Is(err, ErrInvalidParameterType))
 			} else if err != nil || tt.wantErr {
 				t.Errorf("UtilityFunc() error = %v, wantErr %v", err, tt.wantErr)
 			}

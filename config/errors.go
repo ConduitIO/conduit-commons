@@ -18,8 +18,9 @@ import "errors"
 
 var (
 	ErrUnrecognizedParameter    = errors.New("unrecognized parameter")
-	ErrInvalidParamValue        = errors.New("invalid parameter value")
-	ErrInvalidParamType         = errors.New("invalid parameter type")
+	ErrInvalidParameterValue    = errors.New("invalid parameter value")
+	ErrInvalidParameterType     = errors.New("invalid parameter type")
+	ErrInvalidValidationType    = errors.New("invalid validation type")
 	ErrRequiredParameterMissing = errors.New("required parameter is not provided")
 
 	ErrLessThanValidationFail    = errors.New("less-than validation failed")
