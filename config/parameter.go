@@ -14,8 +14,6 @@
 
 package config
 
-import parameterv1 "github.com/conduitio/conduit-commons/proto/parameter/v1"
-
 // Parameters is a map of all configuration parameters.
 type Parameters map[string]Parameter
 
@@ -41,14 +39,3 @@ const (
 	ParameterTypeFile
 	ParameterTypeDuration
 )
-
-func _() {
-	// An "invalid array index" compiler error signifies that the constant values have changed.
-	var cTypes [1]struct{}
-	_ = cTypes[int(ParameterTypeString)-int(parameterv1.Parameter_TYPE_STRING)]
-	_ = cTypes[int(ParameterTypeInt)-int(parameterv1.Parameter_TYPE_INT)]
-	_ = cTypes[int(ParameterTypeFloat)-int(parameterv1.Parameter_TYPE_FLOAT)]
-	_ = cTypes[int(ParameterTypeBool)-int(parameterv1.Parameter_TYPE_BOOL)]
-	_ = cTypes[int(ParameterTypeFile)-int(parameterv1.Parameter_TYPE_FILE)]
-	_ = cTypes[int(ParameterTypeDuration)-int(parameterv1.Parameter_TYPE_DURATION)]
-}

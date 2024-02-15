@@ -20,8 +20,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-
-	parameterv1 "github.com/conduitio/conduit-commons/proto/parameter/v1"
 )
 
 type Validation interface {
@@ -41,17 +39,6 @@ const (
 	ValidationTypeExclusion
 	ValidationTypeRegex
 )
-
-func _() {
-	// An "invalid array index" compiler error signifies that the constant values have changed.
-	var cTypes [1]struct{}
-	_ = cTypes[int(ValidationTypeRequired)-int(parameterv1.Validation_TYPE_REQUIRED)]
-	_ = cTypes[int(ValidationTypeGreaterThan)-int(parameterv1.Validation_TYPE_GREATER_THAN)]
-	_ = cTypes[int(ValidationTypeLessThan)-int(parameterv1.Validation_TYPE_LESS_THAN)]
-	_ = cTypes[int(ValidationTypeInclusion)-int(parameterv1.Validation_TYPE_INCLUSION)]
-	_ = cTypes[int(ValidationTypeExclusion)-int(parameterv1.Validation_TYPE_EXCLUSION)]
-	_ = cTypes[int(ValidationTypeRegex)-int(parameterv1.Validation_TYPE_REGEX)]
-}
 
 type ValidationRequired struct{}
 
