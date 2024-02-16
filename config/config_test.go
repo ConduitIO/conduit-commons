@@ -23,6 +23,15 @@ import (
 	"github.com/matryer/is"
 )
 
+func TestConfig_Sanitize(t *testing.T) {
+	is := is.New(t)
+	have := Config{"   key   ": "   value   "}
+	want := Config{"key": "value"}
+
+	have.Sanitize()
+	is.Equal(have, want)
+}
+
 func TestConfig_Validate_ParameterType(t *testing.T) {
 	tests := []struct {
 		name    string

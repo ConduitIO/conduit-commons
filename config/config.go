@@ -36,6 +36,7 @@ type Config map[string]string
 // configuration.
 func (c Config) Sanitize() Config {
 	for key, val := range c {
+		delete(c, key)
 		key = strings.TrimSpace(key)
 		val = strings.TrimSpace(val)
 		c[key] = val
