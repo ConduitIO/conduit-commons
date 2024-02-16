@@ -20,9 +20,12 @@ package config
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mitchellh/mapstructure"
 )
 
 // Config is a map of configuration values. The keys are the configuration
@@ -142,4 +145,69 @@ func (c Config) validateParamValue(key string, param Parameter) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// DecodeInto copies configuration values into the target object.
+// Under the hood, this function uses github.com/mitchellh/mapstructure, with
+// the "mapstructure" tag renamed to "json". To rename a key, use the "json"
+// tag. To embed structs, append ",squash" to your tag. For more details and
+// docs, see https://pkg.go.dev/github.com/mitchellh/mapstructure.
+func (c Config) DecodeInto(target any) error {
+	dConfig := &mapstructure.DecoderConfig{
+		WeaklyTypedInput: true,
+		Result:           &target,
+		DecodeHook: mapstructure.ComposeDecodeHookFunc(
+			emptyStringToZeroValueHookFunc(),
+			mapstructure.StringToTimeDurationHookFunc(),
+			mapstructure.StringToSliceHookFunc(","),
+		),
+		TagName: "json",
+		Squash:  true,
+	}
+
+	decoder, err := mapstructure.NewDecoder(dConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create decoder: %w", err)
+	}
+	err = decoder.Decode(c.breakUp())
+	if err != nil {
+		return fmt.Errorf("failed to decode configuration map into target: %w", err)
+	}
+
+	return nil
+}
+
+// breakUp breaks up the configuration into a map of maps based on the dot separator.
+func (c Config) breakUp() map[string]any {
+	const sep = "."
+
+	brokenUp := make(map[string]any)
+	for k, v := range c {
+		// break up based on dot and put in maps in case target struct is broken up
+		tokens := strings.Split(k, sep)
+		remain := k
+		current := brokenUp
+		for _, t := range tokens {
+			current[remain] = v // we don't care if we overwrite a map here, the string has precedence
+			if _, ok := current[t]; !ok {
+				current[t] = map[string]any{}
+			}
+			var ok bool
+			current, ok = current[t].(map[string]any)
+			if !ok {
+				break // this key is a string, leave it as it is
+			}
+			_, remain, _ = strings.Cut(remain, sep)
+		}
+	}
+	return brokenUp
+}
+
+func emptyStringToZeroValueHookFunc() mapstructure.DecodeHookFunc {
+	return func(f reflect.Type, t reflect.Type, data any) (any, error) {
+		if f.Kind() != reflect.String || data != "" {
+			return data, nil
+		}
+		return reflect.New(t).Elem().Interface(), nil
+	}
 }
