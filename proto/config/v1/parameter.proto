@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package config.v1;
 
+option go_package = "github.com/conduitio/conduit-commons/proto/config/v1";
+
 // Parameter describes a single config parameter.
 message Parameter {
   // Type shows the parameter type.
