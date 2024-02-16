@@ -153,14 +153,17 @@ func (c Config) validateParamValue(key string, param Parameter) error {
 // the "mapstructure" tag renamed to "json". To rename a key, use the "json"
 // tag. To embed structs, append ",squash" to your tag. For more details and
 // docs, see https://pkg.go.dev/github.com/mitchellh/mapstructure.
-func (c Config) DecodeInto(target any) error {
+func (c Config) DecodeInto(target any, hookFunc ...mapstructure.DecodeHookFunc) error {
 	dConfig := &mapstructure.DecoderConfig{
 		WeaklyTypedInput: true,
 		Result:           &target,
 		DecodeHook: mapstructure.ComposeDecodeHookFunc(
-			emptyStringToZeroValueHookFunc(),
-			mapstructure.StringToTimeDurationHookFunc(),
-			mapstructure.StringToSliceHookFunc(","),
+			append(
+				hookFunc,
+				emptyStringToZeroValueHookFunc(),
+				mapstructure.StringToTimeDurationHookFunc(),
+				mapstructure.StringToSliceHookFunc(","),
+			)...,
 		),
 		TagName: "json",
 		Squash:  true,
