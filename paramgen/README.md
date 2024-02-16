@@ -130,7 +130,7 @@ import (
 
 func (SourceConfig) Parameters() map[string]config.Parameter {
 	return map[string]config.Parameter{
-		"innerConfig.my-name": {
+		"my-name": {
 			Default:     "",
 			Description: "",
 			Type:        config.ParameterTypeString,
