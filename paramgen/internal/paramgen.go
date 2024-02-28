@@ -481,7 +481,7 @@ func (p *parameterParser) parseSingleParameter(f *ast.Field, t config.ParameterT
 
 	return paramName, config.Parameter{
 		Default:     p.getTag(f.Tag, tagParamDefault),
-		Description: p.formatFieldComment(f, fieldName, paramName),
+		Description: p.formatFieldComment(f),
 		Validations: validations,
 		Type:        t,
 	}, nil
@@ -545,7 +545,7 @@ func (p *parameterParser) formatFieldName(name string) string {
 	return newName
 }
 
-func (p *parameterParser) formatFieldComment(f *ast.Field, fieldName, paramName string) string {
+func (p *parameterParser) formatFieldComment(f *ast.Field) string {
 	doc := f.Doc
 	if doc == nil {
 		// fallback to line comment
