@@ -89,9 +89,13 @@ func (d RawData) MarshalJSON(ctx context.Context) ([]byte, error) {
 	if ctx != nil {
 		s := ctx.Value(jsonSerializerCtxKey{})
 		if s != nil && s.(*JSONSerializer).RawDataAsString {
+			// We should serialize RawData as a string.
 			return json.Marshal(string(d))
 		}
 	}
+
+	// We could use json.Marshal([]byte(d)) here, but it would be 3 times slower,
+	// and since this is in the hot path, we need to optimize it.
 
 	if d == nil {
 		return []byte(`null`), nil
