@@ -26,19 +26,12 @@ type RecordSerializer interface {
 	Serialize(Record) ([]byte, error)
 }
 
-// JSONSerializer is a RecordSerializer that serializes records to JSON.
-type JSONSerializer struct {
-	// RawDataAsString is a flag that indicates if the RawData type should be
-	// serialized as a string. If set to false, RawData will be serialized as a
-	// base64 encoded string. If set to true, RawData will be serialized as a
-	// string without conversion.
-	RawDataAsString bool
-}
-
-type jsonSerializerCtxKey struct{}
+// JSONSerializer is a RecordSerializer that serializes records to JSON using
+// the configured options.
+type JSONSerializer JSONMarshalOptions
 
 func (s JSONSerializer) Serialize(r Record) ([]byte, error) {
-	ctx := context.WithValue(context.Background(), jsonSerializerCtxKey{}, &s)
+	ctx := WithJSONMarshalOptions(context.Background(), (*JSONMarshalOptions)(&s))
 	defer func() {
 		// Workaround because of https://github.com/goccy/go-json/issues/499.
 		// TODO: Remove this when the issue is fixed and store value in context

@@ -87,8 +87,8 @@ func (d RawData) Clone() Data {
 
 func (d RawData) MarshalJSON(ctx context.Context) ([]byte, error) {
 	if ctx != nil {
-		s := ctx.Value(jsonSerializerCtxKey{})
-		if s != nil && s.(*JSONSerializer).RawDataAsString {
+		s := ctx.Value(jsonMarshalOptionsCtxKey{})
+		if s != nil && s.(*JSONMarshalOptions).RawDataAsString {
 			// We should serialize RawData as a string.
 			return json.Marshal(string(d))
 		}
