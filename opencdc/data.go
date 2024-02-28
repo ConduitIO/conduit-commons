@@ -88,8 +88,10 @@ func (d RawData) Clone() Data {
 func (d RawData) MarshalJSON(ctx context.Context) ([]byte, error) {
 	if ctx != nil {
 		s := ctx.Value(jsonMarshalOptionsCtxKey{})
+		//nolint:forcetypeassert // We know the type of the value.
 		if s != nil && s.(*JSONMarshalOptions).RawDataAsString {
 			// We should serialize RawData as a string.
+			//nolint:wrapcheck // If we didn't implement MarshalJSON this would be done by the json package.
 			return json.Marshal(string(d))
 		}
 	}

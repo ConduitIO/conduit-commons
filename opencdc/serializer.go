@@ -16,6 +16,7 @@ package opencdc
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/goccy/go-json"
 )
@@ -38,5 +39,9 @@ func (s JSONSerializer) Serialize(r Record) ([]byte, error) {
 		//  instead of pointer.
 		s = JSONSerializer{}
 	}()
-	return json.MarshalContext(ctx, r)
+	bytes, err := json.MarshalContext(ctx, r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize record to JSON: %w", err)
+	}
+	return bytes, nil
 }

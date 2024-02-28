@@ -22,8 +22,6 @@ import (
 )
 
 func TestJSONSerializer(t *testing.T) {
-	t.Skip()
-	is := is.New(t)
 	rec := Record{
 		Position:  Position("standing"),
 		Operation: OperationUpdate,
@@ -62,6 +60,7 @@ func TestJSONSerializer(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			is := is.New(t)
 			rec.SetSerializer(tc.serializer)
 			b := rec.Bytes()
 			is.Equal(cmp.Diff(string(b), tc.want), "")
