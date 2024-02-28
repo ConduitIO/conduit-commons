@@ -23,7 +23,7 @@ import (
 	"github.com/matryer/is"
 )
 
-func TestRecord_UnmarshalJSON(t *testing.T) {
+func TestRecord_JSON(t *testing.T) {
 	is := is.New(t)
 	have := Record{
 		Position:  Position("standing"),
@@ -46,6 +46,7 @@ func TestRecord_UnmarshalJSON(t *testing.T) {
 			},
 		},
 	}
+	wantJSON := `{"position":"c3RhbmRpbmc=","operation":"update","metadata":{"foo":"bar"},"key":"cGFkbG9jay1rZXk=","payload":{"before":"eWVsbG93","after":{"bool":true,"float32":1.2,"float64":1.2,"int":1,"int32":1,"int64":1,"string":"orange"}}}`
 	want := Record{
 		Position:  Position("standing"),
 		Operation: OperationUpdate,
@@ -70,6 +71,8 @@ func TestRecord_UnmarshalJSON(t *testing.T) {
 
 	b, err := json.Marshal(have)
 	is.NoErr(err)
+
+	is.Equal(cmp.Diff(string(b), wantJSON), "")
 
 	var got Record
 	err = json.Unmarshal(b, &got)

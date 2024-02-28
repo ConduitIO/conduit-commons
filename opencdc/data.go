@@ -16,6 +16,8 @@ package opencdc
 
 import (
 	"bytes"
+	"context"
+	"encoding/base64"
 	"fmt"
 
 	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
@@ -81,4 +83,23 @@ func (d RawData) Bytes() []byte {
 
 func (d RawData) Clone() Data {
 	return RawData(bytes.Clone(d))
+}
+
+func (d RawData) MarshalJSON(ctx context.Context) ([]byte, error) {
+	if ctx != nil {
+		s := ctx.Value(jsonSerializerCtxKey{})
+		if s != nil && s.(*JSONSerializer).RawDataAsString {
+			return json.Marshal(string(d))
+		}
+	}
+
+	if d == nil {
+		return []byte(`null`), nil
+	}
+	encodedLen := base64.StdEncoding.EncodedLen(len(d))
+	out := make([]byte, encodedLen+2)
+	out[0] = '"' // add leading quote
+	base64.StdEncoding.Encode(out[1:], d)
+	out[encodedLen+1] = '"' // add trailing quote
+	return out, nil
 }
