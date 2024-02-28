@@ -551,10 +551,7 @@ func (p *parameterParser) formatFieldComment(f *ast.Field, fieldName, paramName 
 		// fallback to line comment
 		doc = f.Comment
 	}
-	c := strings.ReplaceAll(doc.Text(), fieldName, paramName)
-	if len(c) == 0 {
-		return c
-	}
+	c := doc.Text()
 
 	whitespacePrefix := ""
 	for _, r := range c {
@@ -568,10 +565,8 @@ func (p *parameterParser) formatFieldComment(f *ast.Field, fieldName, paramName 
 	c = strings.TrimPrefix(c, whitespacePrefix)
 	// get rid of whitespace in front of all other lines
 	c = strings.ReplaceAll(c, "\n"+whitespacePrefix, "\n")
-	// get rid of new lines and use a space instead
-	c = strings.ReplaceAll(c, "\n", " ")
 	// trim space (get rid of any eventual new lines at the end)
-	c = strings.Trim(c, " ")
+	c = strings.TrimRight(c, " \n")
 	return c
 }
 
