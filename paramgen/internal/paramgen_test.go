@@ -37,14 +37,14 @@ func TestParseSpecificationSuccess(t *testing.T) {
 			want: map[string]config.Parameter{
 				"foo": {
 					Default:     "bar",
-					Description: "foo is a required field in the global config with the name \"foo\" and default value \"bar\".",
+					Description: "MyGlobalString is a required field in the global config with the name\n\"foo\" and default value \"bar\".",
 					Type:        config.ParameterTypeString,
 					Validations: []config.Validation{
 						config.ValidationRequired{},
 					},
 				},
 				"myString": {
-					Description: "myString my string description",
+					Description: "MyString my string description",
 					Type:        config.ParameterTypeString,
 				},
 				"myBool": {Type: config.ParameterTypeBool},
@@ -85,21 +85,21 @@ func TestParseSpecificationSuccess(t *testing.T) {
 			want: map[string]config.Parameter{
 				"global.duration": {
 					Default:     "1s",
-					Description: "duration does not have a name so the type name is used.",
+					Description: "Duration does not have a name so the type name is used.",
 					Type:        config.ParameterTypeDuration,
 				},
 				"nestMeHere.anotherNested": {
 					Type:        config.ParameterTypeInt,
-					Description: "nestMeHere.anotherNested is also nested under nestMeHere. This is a block comment.",
+					Description: "AnotherNested is also nested under nestMeHere.\nThis is a block comment.",
 				},
 				"nestMeHere.formatThisName": {
 					Type:        config.ParameterTypeFloat,
 					Default:     "this is not a float",
-					Description: "formatThisName should become \"formatThisName\". Default is not a float but that's not a problem, paramgen does not validate correctness.",
+					Description: "FORMATThisName should stay \"FORMATThisName\". Default is not a float\nbut that's not a problem, paramgen does not validate correctness.",
 				},
 				"customType": {
 					Type:        config.ParameterTypeDuration,
-					Description: "customType uses a custom type that is convertible to a supported type. Line comments are allowed.",
+					Description: "CustomType uses a custom type that is convertible to a supported type. Line comments are allowed.",
 				},
 			},
 		},
@@ -114,7 +114,7 @@ func TestParseSpecificationSuccess(t *testing.T) {
 				},
 				"my-param": {
 					Type:        config.ParameterTypeInt,
-					Description: "my-param i am a parameter comment",
+					Description: "Param1 i am a parameter comment",
 					Default:     "3",
 					Validations: []config.Validation{
 						config.ValidationRequired{},

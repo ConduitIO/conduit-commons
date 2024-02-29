@@ -22,7 +22,7 @@ type SourceConfig struct {
 	Global GlobalConfig `json:"global"`
 	// Nested structs can be used to create namespaces
 	Nested struct {
-		// FORMATThisName should become "formatThisName". Default is not a float
+		// FORMATThisName should stay "FORMATThisName". Default is not a float
 		// but that's not a problem, paramgen does not validate correctness.
 		FORMATThisName float32 `default:"this is not a float"`
 		// unexported fields should be ignored.
