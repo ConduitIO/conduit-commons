@@ -22,6 +22,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/goccy/go-json"
 )
 
 type Validation interface {
@@ -42,6 +44,10 @@ const (
 	ValidationTypeRegex                                 // regex
 )
 
+func (vt ValidationType) MarshalText() ([]byte, error) {
+	return []byte(vt.String()), nil
+}
+
 type ValidationRequired struct{}
 
 func (v ValidationRequired) Type() ValidationType { return ValidationTypeRequired }
@@ -52,6 +58,7 @@ func (v ValidationRequired) Validate(value string) error {
 	}
 	return nil
 }
+func (v ValidationRequired) MarshalJSON() ([]byte, error) { return jsonMarshalValidation(v) }
 
 type ValidationGreaterThan struct {
 	V float64
@@ -70,6 +77,7 @@ func (v ValidationGreaterThan) Validate(value string) error {
 	}
 	return nil
 }
+func (v ValidationGreaterThan) MarshalJSON() ([]byte, error) { return jsonMarshalValidation(v) }
 
 type ValidationLessThan struct {
 	V float64
@@ -88,6 +96,7 @@ func (v ValidationLessThan) Validate(value string) error {
 	}
 	return nil
 }
+func (v ValidationLessThan) MarshalJSON() ([]byte, error) { return jsonMarshalValidation(v) }
 
 type ValidationInclusion struct {
 	List []string
@@ -101,6 +110,7 @@ func (v ValidationInclusion) Validate(value string) error {
 	}
 	return nil
 }
+func (v ValidationInclusion) MarshalJSON() ([]byte, error) { return jsonMarshalValidation(v) }
 
 type ValidationExclusion struct {
 	List []string
@@ -114,6 +124,7 @@ func (v ValidationExclusion) Validate(value string) error {
 	}
 	return nil
 }
+func (v ValidationExclusion) MarshalJSON() ([]byte, error) { return jsonMarshalValidation(v) }
 
 type ValidationRegex struct {
 	Regex *regexp.Regexp
@@ -126,4 +137,13 @@ func (v ValidationRegex) Validate(value string) error {
 		return fmt.Errorf("%q should match the regex %q: %w", value, v.Regex.String(), ErrRegexValidationFail)
 	}
 	return nil
+}
+func (v ValidationRegex) MarshalJSON() ([]byte, error) { return jsonMarshalValidation(v) }
+
+func jsonMarshalValidation(v Validation) ([]byte, error) {
+	//nolint:wrapcheck // no need to wrap this error, this will be called by the JSON lib itself
+	return json.Marshal(map[string]any{
+		"type":  v.Type(),
+		"value": v.Value(),
+	})
 }
