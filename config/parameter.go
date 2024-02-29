@@ -22,13 +22,13 @@ type Parameters map[string]Parameter
 // Parameter defines a single configuration parameter.
 type Parameter struct {
 	// Default is the default value of the parameter, if any.
-	Default string
+	Default string `json:"default"`
 	// Description holds a description of the field and how to configure it.
-	Description string
+	Description string `json:"description"`
 	// Type defines the parameter data type.
-	Type ParameterType
+	Type ParameterType `json:"type"`
 	// Validations list of validations to check for the parameter.
-	Validations []Validation
+	Validations []Validation `json:"validations"`
 }
 
 type ParameterType int
@@ -41,3 +41,7 @@ const (
 	ParameterTypeFile                              // file
 	ParameterTypeDuration                          // duration
 )
+
+func (pt ParameterType) MarshalText() ([]byte, error) {
+	return []byte(pt.String()), nil
+}
