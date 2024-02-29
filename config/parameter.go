@@ -16,19 +16,25 @@
 
 package config
 
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
 // Parameters is a map of all configuration parameters.
 type Parameters map[string]Parameter
 
 // Parameter defines a single configuration parameter.
 type Parameter struct {
 	// Default is the default value of the parameter, if any.
-	Default string
+	Default string `json:"default"`
 	// Description holds a description of the field and how to configure it.
-	Description string
+	Description string `json:"description"`
 	// Type defines the parameter data type.
-	Type ParameterType
+	Type ParameterType `json:"type"`
 	// Validations list of validations to check for the parameter.
-	Validations []Validation
+	Validations []Validation `json:"validations"`
 }
 
 type ParameterType int
@@ -41,3 +47,38 @@ const (
 	ParameterTypeFile                              // file
 	ParameterTypeDuration                          // duration
 )
+
+func (pt ParameterType) MarshalText() ([]byte, error) {
+	return []byte(pt.String()), nil
+}
+
+func (pt *ParameterType) UnmarshalText(b []byte) error {
+	if len(b) == 0 {
+		return nil // empty string, do nothing
+	}
+
+	switch string(b) {
+	case ParameterTypeString.String():
+		*pt = ParameterTypeString
+	case ParameterTypeInt.String():
+		*pt = ParameterTypeInt
+	case ParameterTypeFloat.String():
+		*pt = ParameterTypeFloat
+	case ParameterTypeBool.String():
+		*pt = ParameterTypeBool
+	case ParameterTypeFile.String():
+		*pt = ParameterTypeFile
+	case ParameterTypeDuration.String():
+		*pt = ParameterTypeDuration
+	default:
+		// it may not be a known parameter type, but we also allow ParameterType(int)
+		valIntRaw := strings.TrimSuffix(strings.TrimPrefix(string(b), "ParameterType("), ")")
+		valInt, err := strconv.Atoi(valIntRaw)
+		if err != nil {
+			return fmt.Errorf("parameter type %q: %w", b, ErrInvalidParameterType)
+		}
+		*pt = ParameterType(valInt)
+	}
+
+	return nil
+}
