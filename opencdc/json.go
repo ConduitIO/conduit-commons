@@ -15,10 +15,29 @@
 package opencdc
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/goccy/go-json"
 )
+
+// JSONMarshalOptions can customize how a record is serialized to JSON. It can
+// be attached to a context using WithJSONMarshalOptions and supplied to
+// json.MarshalContext to customize the serialization behavior.
+type JSONMarshalOptions struct {
+	// RawDataAsString is a flag that indicates if the RawData type should be
+	// serialized as a string. If set to false, RawData will be serialized as a
+	// base64 encoded string. If set to true, RawData will be serialized as a
+	// string without conversion.
+	RawDataAsString bool
+}
+
+type jsonMarshalOptionsCtxKey struct{}
+
+// WithJSONMarshalOptions attaches JSONMarshalOptions to a context.
+func WithJSONMarshalOptions(ctx context.Context, options *JSONMarshalOptions) context.Context {
+	return context.WithValue(ctx, jsonMarshalOptionsCtxKey{}, options)
+}
 
 func (r *Record) UnmarshalJSON(b []byte) error {
 	var raw struct {

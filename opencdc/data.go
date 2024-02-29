@@ -16,6 +16,8 @@ package opencdc
 
 import (
 	"bytes"
+	"context"
+	"encoding/base64"
 	"fmt"
 
 	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
@@ -81,4 +83,29 @@ func (d RawData) Bytes() []byte {
 
 func (d RawData) Clone() Data {
 	return RawData(bytes.Clone(d))
+}
+
+func (d RawData) MarshalJSON(ctx context.Context) ([]byte, error) {
+	if ctx != nil {
+		s := ctx.Value(jsonMarshalOptionsCtxKey{})
+		//nolint:forcetypeassert // We know the type of the value.
+		if s != nil && s.(*JSONMarshalOptions).RawDataAsString {
+			// We should serialize RawData as a string.
+			//nolint:wrapcheck // If we didn't implement MarshalJSON this would be done by the json package.
+			return json.Marshal(string(d))
+		}
+	}
+
+	// We could use json.Marshal([]byte(d)) here, but it would be 3 times slower,
+	// and since this is in the hot path, we need to optimize it.
+
+	if d == nil {
+		return []byte(`null`), nil
+	}
+	encodedLen := base64.StdEncoding.EncodedLen(len(d))
+	out := make([]byte, encodedLen+2)
+	out[0] = '"' // add leading quote
+	base64.StdEncoding.Encode(out[1:], d)
+	out[encodedLen+1] = '"' // add trailing quote
+	return out, nil
 }
