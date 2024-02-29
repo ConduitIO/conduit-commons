@@ -48,37 +48,6 @@ func (vt ValidationType) MarshalText() ([]byte, error) {
 	return []byte(vt.String()), nil
 }
 
-func (vt *ValidationType) UnmarshalText(b []byte) error {
-	if len(b) == 0 {
-		return nil // empty string, do nothing
-	}
-
-	switch string(b) {
-	case ValidationTypeRequired.String():
-		*vt = ValidationTypeRequired
-	case ValidationTypeGreaterThan.String():
-		*vt = ValidationTypeGreaterThan
-	case ValidationTypeLessThan.String():
-		*vt = ValidationTypeLessThan
-	case ValidationTypeInclusion.String():
-		*vt = ValidationTypeInclusion
-	case ValidationTypeExclusion.String():
-		*vt = ValidationTypeExclusion
-	case ValidationTypeRegex.String():
-		*vt = ValidationTypeRegex
-	default:
-		// it may not be a known validation type, but we also allow ValidationType(int)
-		valIntRaw := strings.TrimSuffix(strings.TrimPrefix(string(b), "ValidationType("), ")")
-		valInt, err := strconv.Atoi(valIntRaw)
-		if err != nil {
-			return fmt.Errorf("validation type %q: %w", b, ErrInvalidValidationType)
-		}
-		*vt = ValidationType(valInt)
-	}
-
-	return nil
-}
-
 type ValidationRequired struct{}
 
 func (v ValidationRequired) Type() ValidationType { return ValidationTypeRequired }
