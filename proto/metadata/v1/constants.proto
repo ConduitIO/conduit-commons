@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package metadata.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/conduitio/conduit-commons/proto/metadata/v1";
+
+option (metadata_conduit_source_plugin_name) = "conduit.source.plugin.name";
+option (metadata_conduit_source_plugin_version) = "conduit.source.plugin.version";
+option (metadata_conduit_destination_plugin_name) = "conduit.destination.plugin.name";
+option (metadata_conduit_destination_plugin_version) = "conduit.destination.plugin.version";
+
+option(metadata_conduit_source_connector_id) = "conduit.source.connector.id";
+option(metadata_conduit_dlq_nack_error) = "conduit.dlq.nack.error";
+option(metadata_conduit_dlq_nack_node_id) = "conduit.dlq.nack.node.id";
+
+// We are (ab)using custom file options to define constants.
+// See https://github.com/protocolbuffers/protobuf/issues/3520#issuecomment-323613839
+extend google.protobuf.FileOptions {
+  // Metadata field "conduit.source.plugin.name" contains the name of the source
+  // plugin that created this record.
+  string metadata_conduit_source_plugin_name = 20000;
+  // Metadata field "conduit.source.plugin.version" contains the version of the
+  // source plugin that created this record.
+  string metadata_conduit_source_plugin_version = 20001;
+  // Metadata field "conduit.destination.plugin.name" contains the name of the
+  // destination plugin that has written this record (only available in records
+  // once they are written by a destination).
+  string metadata_conduit_destination_plugin_name = 20002;
+  // Metadata field "conduit.destination.plugin.version" contains the version of
+  // the destination plugin that has written this record (only available in
+  // records once they are written by a destination).
+  string metadata_conduit_destination_plugin_version = 20003;
+
+  // Metadata field "conduit.source.connector.id" contains the ID of the source
+  // connector that produced this record.
+  string metadata_conduit_source_connector_id = 20004;
+  // Metadata field "conduit.dlq.nack.error" contains the error that caused a
+  // record to be nacked and pushed to the dead-letter queue.
+  string metadata_conduit_dlq_nack_error = 20005;
+  // Metadata field "conduit.dlq.nack.node.id" contains the ID of the internal
+  // node that nacked the record.
+  string metadata_conduit_dlq_nack_node_id = 20006;
+}
