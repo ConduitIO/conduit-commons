@@ -17,6 +17,7 @@ package opencdc
 import (
 	"testing"
 
+	metadatav1 "github.com/conduitio/conduit-commons/proto/metadata/v1"
 	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/runtime/protoimpl"
@@ -28,6 +29,15 @@ func TestMetadataConstants(t *testing.T) {
 		MetadataOpenCDCVersion: opencdcv1.E_MetadataVersion,
 		MetadataCreatedAt:      opencdcv1.E_MetadataCreatedAt,
 		MetadataReadAt:         opencdcv1.E_MetadataReadAt,
+		MetadataCollection:     opencdcv1.E_MetadataCollection,
+
+		MetadataConduitSourcePluginName:         metadatav1.E_MetadataConduitSourcePluginName,
+		MetadataConduitSourcePluginVersion:      metadatav1.E_MetadataConduitSourcePluginVersion,
+		MetadataConduitDestinationPluginName:    metadatav1.E_MetadataConduitDestinationPluginName,
+		MetadataConduitDestinationPluginVersion: metadatav1.E_MetadataConduitDestinationPluginVersion,
+		MetadataConduitSourceConnectorID:        metadatav1.E_MetadataConduitSourceConnectorId,
+		MetadataConduitDLQNackError:             metadatav1.E_MetadataConduitDlqNackError,
+		MetadataConduitDLQNackNodeID:            metadatav1.E_MetadataConduitDlqNackNodeId,
 	}
 	for goConstant, extensionInfo := range wantMapping {
 		protoConstant := proto.GetExtension(extensionInfo.TypeDescriptor().ParentFile().Options(), extensionInfo)

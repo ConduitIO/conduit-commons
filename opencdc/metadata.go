@@ -40,6 +40,9 @@ const (
 	// read from the 3rd party system. The expected format is a unix timestamp
 	// in nanoseconds.
 	MetadataReadAt = "opencdc.readAt"
+	// MetadataCollection is a Record.Metadata key for the name of the collection
+	// where the record originated from and/or where it should be stored.
+	MetadataCollection = "opencdc.collection"
 
 	// MetadataConduitSourcePluginName is a Record.Metadata key for the name of
 	// the source plugin that created this record.
@@ -57,7 +60,7 @@ const (
 	MetadataConduitDestinationPluginVersion = "conduit.destination.plugin.version"
 
 	// MetadataConduitSourceConnectorID is a Record.Metadata key for the ID of
-	// the source connector that received this record.
+	// the source connector that produced this record.
 	MetadataConduitSourceConnectorID = "conduit.source.connector.id"
 	// MetadataConduitDLQNackError is a Record.Metadata key for the error that
 	// caused a record to be nacked and pushed to the dead-letter queue.
@@ -128,6 +131,17 @@ func (m Metadata) GetReadAt() (time.Time, error) {
 // timestamp in nanoseconds.
 func (m Metadata) SetReadAt(createdAt time.Time) {
 	m[MetadataReadAt] = strconv.FormatInt(createdAt.UnixNano(), 10)
+}
+
+// GetCollection returns the value for key MetadataCollection. If the value does
+// not exist or is empty the function returns ErrMetadataFieldNotFound.
+func (m Metadata) GetCollection() (string, error) {
+	return m.getValue(MetadataCollection)
+}
+
+// SetCollection sets the metadata value for key MetadataCollection.
+func (m Metadata) SetCollection(collection string) {
+	m[MetadataCollection] = collection
 }
 
 // GetConduitSourcePluginName returns the value for key
