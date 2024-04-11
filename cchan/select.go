@@ -130,7 +130,9 @@ func (s *Select[T]) Select(ctx context.Context) (Selected[T], error) {
 		for _, i := range s.closed {
 			if sl.Index >= i {
 				sl.Index++
+				continue
 			}
+			break
 		}
 	}
 
