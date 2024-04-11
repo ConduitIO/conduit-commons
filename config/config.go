@@ -49,8 +49,12 @@ func (c Config) Sanitize() Config {
 // configuration, the default value is applied.
 func (c Config) ApplyDefaults(params Parameters) Config {
 	for key, param := range params {
-		if strings.TrimSpace(c[key]) == "" { // TODO get value for dynamic key
-			c[key] = param.Default
+		for _, key := range c.getKeysForParameter(key) {
+			// TODO it's not that easy, we need to check for all keys with the
+			//  same pattern and create them if they don't exist
+			if strings.TrimSpace(c[key]) == "" {
+				c[key] = param.Default
+			}
 		}
 	}
 	return c
@@ -92,57 +96,67 @@ func (c Config) validateUnrecognizedParameters(params Parameters) []error {
 
 // validateParamType validates that a parameter value is parsable to its assigned type.
 func (c Config) validateParamType(key string, param Parameter) error {
-	value := c[key] // TODO get value for dynamic key
-	// empty value is valid for all types
-	if value == "" {
-		return nil
-	}
+	keys := c.getKeysForParameter(key)
 
-	//nolint:exhaustive // type ParameterTypeFile and ParameterTypeString don't need type validations (both are strings or byte slices)
-	switch param.Type {
-	case ParameterTypeInt:
-		_, err := strconv.Atoi(value)
-		if err != nil {
-			return fmt.Errorf("error validating %q: %q value is not an integer: %w", key, value, ErrInvalidParameterType)
+	var errs []error
+	for _, k := range keys {
+		value := c[k]
+		// empty value is valid for all types
+		if value == "" {
+			continue
 		}
-	case ParameterTypeFloat:
-		_, err := strconv.ParseFloat(value, 64)
-		if err != nil {
-			return fmt.Errorf("error validating %q: %q value is not a float: %w", key, value, ErrInvalidParameterType)
-		}
-	case ParameterTypeDuration:
-		_, err := time.ParseDuration(value)
-		if err != nil {
-			return fmt.Errorf("error validating %q: %q value is not a duration: %w", key, value, ErrInvalidParameterType)
-		}
-	case ParameterTypeBool:
-		_, err := strconv.ParseBool(value)
-		if err != nil {
-			return fmt.Errorf("error validating %q: %q value is not a boolean: %w", key, value, ErrInvalidParameterType)
+		//nolint:exhaustive // type ParameterTypeFile and ParameterTypeString don't need type validations (both are strings or byte slices)
+		switch param.Type {
+		case ParameterTypeInt:
+			_, err := strconv.Atoi(value)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("error validating %q: %q value is not an integer: %w", k, value, ErrInvalidParameterType))
+			}
+		case ParameterTypeFloat:
+			_, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("error validating %q: %q value is not a float: %w", k, value, ErrInvalidParameterType))
+			}
+		case ParameterTypeDuration:
+			_, err := time.ParseDuration(value)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("error validating %q: %q value is not a duration: %w", k, value, ErrInvalidParameterType))
+			}
+		case ParameterTypeBool:
+			_, err := strconv.ParseBool(value)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("error validating %q: %q value is not a boolean: %w", k, value, ErrInvalidParameterType))
+			}
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // validateParamValue validates that a configuration value matches all the
 // validations required for the parameter.
 func (c Config) validateParamValue(key string, param Parameter) error {
-	value := c[key] // TODO get value for dynamic key
-	var errs []error
+	keys := c.getKeysForParameter(key)
 
-	isRequired := false
-	for _, v := range param.Validations {
-		if _, ok := v.(ValidationRequired); ok {
-			isRequired = true
+	var errs []error
+	for _, k := range keys {
+		value := c[k]
+		var valErrs []error
+
+		isRequired := false
+		for _, v := range param.Validations {
+			if _, ok := v.(ValidationRequired); ok {
+				isRequired = true
+			}
+			err := v.Validate(value)
+			if err != nil {
+				valErrs = append(valErrs, fmt.Errorf("error validating %q: %w", k, err))
+				continue
+			}
 		}
-		err := v.Validate(value)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("error validating %q: %w", key, err))
-			continue
+		if value == "" && !isRequired {
+			continue // empty optional parameter is valid
 		}
-	}
-	if value == "" && !isRequired {
-		return nil // empty optional parameter is valid
+		errs = append(errs, valErrs...)
 	}
 
 	return errors.Join(errs...)
