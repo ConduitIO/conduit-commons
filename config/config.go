@@ -86,8 +86,24 @@ func (c Config) Validate(params Parameters) error {
 func (c Config) validateUnrecognizedParameters(params Parameters) []error {
 	var errs []error
 	for key := range c {
-		// TODO dynamic parameters
-		if _, ok := params[key]; !ok {
+		if _, ok := params[key]; ok {
+			// Direct match.
+			continue
+		}
+		// Check if the key is a wildcard key.
+		match := false
+		for pattern := range params {
+			if !strings.Contains(pattern, "*") {
+				continue
+			}
+			// Check if the key matches the wildcard key.
+			if c.matchParameterKey(key, pattern) {
+				match = true
+				break
+			}
+		}
+
+		if !match {
 			errs = append(errs, fmt.Errorf("%q: %w", key, ErrUnrecognizedParameter))
 		}
 	}
@@ -168,14 +184,6 @@ func (c Config) getKeysForParameter(key string) []string {
 		return []string{key}
 	}
 
-	consume := func(s, prefix string) (string, bool) {
-		if !strings.HasPrefix(s, prefix) {
-			// The key does not start with the token, it does not match the pattern.
-			return "", false
-		}
-		return strings.TrimPrefix(s, prefix), true
-	}
-
 	// There is at least one wildcard in the key, we need to manually find all
 	// the keys that match the pattern.
 	var keys []string
@@ -187,6 +195,7 @@ func (c Config) getKeysForParameter(key string) []string {
 					// The key is consumed, but the token is not, it does not match the pattern.
 					// This happens when the last token is not a wildcard and
 					// the key is a leaf.
+					// e.g. param: "collection.*.format", key: "collection.foo"
 					break
 				}
 				// The last token doesn't matter, if the key matched so far, all
@@ -220,6 +229,30 @@ func (c Config) getKeysForParameter(key string) []string {
 	}
 	slices.Sort(keys)
 	return slices.Compact(keys)
+}
+
+func (c Config) matchParameterKey(key, pattern string) bool {
+	tokens := strings.Split(pattern, "*")
+	if len(tokens) == 1 {
+		// No wildcard in the key, compare the key directly.
+		return key == pattern
+	}
+	k := key
+	for _, token := range tokens {
+		var ok bool
+		k, ok = consume(k, token)
+		if !ok {
+			return false
+		}
+
+		// Between tokens there is a wildcard, we need to strip the key until
+		// the next ".".
+		_, k, ok = strings.Cut(k, ".")
+		if ok {
+			k = "." + k // Add the "." back to the key.
+		}
+	}
+	return true
 }
 
 // DecodeInto copies configuration values into the target object.
@@ -340,4 +373,12 @@ func mapStructHookFunc() mapstructure.DecodeHookFunc {
 
 		return dataMap, nil
 	}
+}
+
+func consume(s, prefix string) (string, bool) {
+	if !strings.HasPrefix(s, prefix) {
+		// The key does not start with the token, it does not match the pattern.
+		return "", false
+	}
+	return strings.TrimPrefix(s, prefix), true
 }

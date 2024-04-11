@@ -105,6 +105,72 @@ func TestConfig_Validate_ParameterType(t *testing.T) {
 		config:  Config{"param1": "some-data"},
 		params:  Parameters{"param1": {Type: ParameterTypeFile}},
 		wantErr: false,
+	}, {
+		// ---------------------- DYNAMIC PARAMETER TESTS ----------------------
+		name:    "dynamic: valid type number",
+		config:  Config{"foo.0.param1": "3"},
+		params:  Parameters{"foo.*.param1": {Default: "3.3", Type: ParameterTypeFloat}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: invalid type float",
+		config:  Config{"foo.0.param1": "not-a-number"},
+		params:  Parameters{"foo.*.param1": {Default: "3.3", Type: ParameterTypeFloat}},
+		wantErr: true,
+	}, {
+		name:    "dynamic: valid default type float",
+		config:  Config{"foo.0.param1": ""},
+		params:  Parameters{"foo.*.param1": {Default: "3", Type: ParameterTypeFloat}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: valid type int",
+		config:  Config{"foo.0.param1": "3"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeInt}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: invalid type int",
+		config:  Config{"foo.0.param1": "3.3"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeInt}},
+		wantErr: true,
+	}, {
+		name:    "dynamic: valid type bool",
+		config:  Config{"foo.0.param1": "1"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeBool}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: valid type bool",
+		config:  Config{"foo.0.param1": "true"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeBool}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: invalid type bool",
+		config:  Config{"foo.0.param1": "not-a-bool"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeBool}},
+		wantErr: true,
+	}, {
+		name:    "dynamic: valid type duration",
+		config:  Config{"foo.0.param1": "1s"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeDuration}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: empty value is valid for all types",
+		config:  Config{"foo.0.param1": ""},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeDuration}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: invalid type duration",
+		config:  Config{"foo.0.param1": "not-a-duration"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeDuration}},
+		wantErr: true,
+	}, {
+		name:    "dynamic: valid type string",
+		config:  Config{"foo.0.param1": "param"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeString}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: valid type file",
+		config:  Config{"foo.0.param1": "some-data"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeFile}},
+		wantErr: false,
 	}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -116,7 +182,7 @@ func TestConfig_Validate_ParameterType(t *testing.T) {
 			if err != nil && tt.wantErr {
 				is.True(errors.Is(err, ErrInvalidParameterType))
 			} else if err != nil || tt.wantErr {
-				t.Errorf("UtilityFunc() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -266,6 +332,144 @@ func TestConfig_Validate_Validations(t *testing.T) {
 			}},
 		},
 		wantErr: false,
+	}, {
+		// ---------------------- DYNAMIC PARAMETER TESTS ----------------------
+		name:   "dynamic: required validation failed",
+		config: Config{"foo.0.param1": ""},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+			}},
+		},
+		wantErr: true,
+		err:     ErrRequiredParameterMissing,
+	}, {
+		name:   "dynamic: required validation pass",
+		config: Config{"foo.0.param1": "value"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+			}},
+		},
+		wantErr: false,
+	}, {
+		name:   "dynamic: less than validation failed",
+		config: Config{"foo.0.param1": "20"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationLessThan{10},
+			}},
+		},
+		wantErr: true,
+		err:     ErrLessThanValidationFail,
+	}, {
+		name:   "dynamic: less than validation pass",
+		config: Config{"foo.0.param1": "0"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationLessThan{10},
+			}},
+		},
+		wantErr: false,
+	}, {
+		name:   "dynamic: greater than validation failed",
+		config: Config{"foo.0.param1": "0"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationGreaterThan{10},
+			}},
+		},
+		wantErr: true,
+		err:     ErrGreaterThanValidationFail,
+	}, {
+		name:   "dynamic: greater than validation failed",
+		config: Config{"foo.0.param1": "20"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationGreaterThan{10},
+			}},
+		},
+		wantErr: false,
+	}, {
+		name:   "dynamic: inclusion validation failed",
+		config: Config{"foo.0.param1": "three"},
+		params: Parameters{
+			"param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationInclusion{[]string{"one", "two"}},
+			}},
+		},
+		wantErr: true,
+		err:     ErrInclusionValidationFail,
+	}, {
+		name:   "dynamic: inclusion validation pass",
+		config: Config{"foo.0.param1": "two"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationInclusion{[]string{"one", "two"}},
+			}},
+		},
+		wantErr: false,
+	}, {
+		name:   "dynamic: exclusion validation failed",
+		config: Config{"foo.0.param1": "one"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationExclusion{[]string{"one", "two"}},
+			}},
+		},
+		wantErr: true,
+		err:     ErrExclusionValidationFail,
+	}, {
+		name:   "dynamic: exclusion validation pass",
+		config: Config{"foo.0.param1": "three"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationExclusion{[]string{"one", "two"}},
+			}},
+		},
+		wantErr: false,
+	}, {
+		name:   "dynamic: regex validation failed",
+		config: Config{"foo.0.param1": "a-a"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationRegex{regexp.MustCompile("[a-z]-[1-9]")},
+			}},
+		},
+		wantErr: true,
+		err:     ErrRegexValidationFail,
+	}, {
+		name:   "dynamic: regex validation pass",
+		config: Config{"foo.0.param1": "a-8"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationRegex{regexp.MustCompile("[a-z]-[1-9]")},
+			}},
+		},
+		wantErr: false,
+	}, {
+		name:   "dynamic: optional validation pass",
+		config: Config{"foo.0.param1": ""},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationInclusion{[]string{"one", "two"}},
+				ValidationExclusion{[]string{"three", "four"}},
+				ValidationRegex{regexp.MustCompile("[a-z]")},
+				ValidationGreaterThan{10},
+				ValidationLessThan{20},
+			}},
+		},
+		wantErr: false,
 	}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -277,7 +481,45 @@ func TestConfig_Validate_Validations(t *testing.T) {
 			if err != nil && tt.wantErr {
 				is.True(errors.Is(err, tt.err))
 			} else if err != nil || tt.wantErr {
-				t.Errorf("UtilityFunc() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestConfig_Validate_Unrecognized(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  Config
+		params  Parameters
+		wantErr bool
+	}{{
+		name:    "parameters empty",
+		config:  Config{"param1": "3"},
+		params:  Parameters{},
+		wantErr: true,
+	}, {
+		name:    "static parameter unrecognized",
+		config:  Config{"param1": "not-a-number"},
+		params:  Parameters{"param2": {Type: ParameterTypeFloat}},
+		wantErr: true,
+	}, {
+		name:    "dynamic parameter unrecognized",
+		config:  Config{"foo.0.param1.": ""},
+		params:  Parameters{"foo.*.param2": {Type: ParameterTypeFloat}},
+		wantErr: true,
+	}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			is := is.New(t)
+			err := tt.config.Sanitize().
+				ApplyDefaults(tt.params).
+				Validate(tt.params)
+
+			if err != nil && tt.wantErr {
+				is.True(errors.Is(err, ErrUnrecognizedParameter))
+			} else if err != nil || tt.wantErr {
+				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -340,6 +582,74 @@ OUTER:
 	}
 	if len(want) != 0 {
 		t.Fatalf("expected more errors: %v", want)
+	}
+}
+
+func TestConfig_ApplyDefaults(t *testing.T) {
+	params := map[string]Parameter{
+		"limit":        {Type: ParameterTypeInt, Default: "1"},
+		"foo.*.param1": {Type: ParameterTypeString, Default: "foo"},
+		"foo.*.param2": {Type: ParameterTypeString},
+	}
+
+	testCases := []struct {
+		name string
+		have Config
+		want Config
+	}{{
+		name: "empty",
+		have: Config{},
+		want: Config{
+			"limit": "1",
+		},
+	}, {
+		name: "foo.0.param2",
+		have: Config{
+			"foo.0.param2": "bar",
+		},
+		want: Config{
+			"limit":        "1",
+			"foo.0.param1": "foo",
+			"foo.0.param2": "bar",
+		},
+	}, {
+		name: "foo.0.param1",
+		have: Config{
+			"limit":        "-1",
+			"foo.0.param1": "custom",
+		},
+		want: Config{
+			"limit":        "-1",
+			"foo.0.param1": "custom",
+			"foo.0.param2": "",
+		},
+	}, {
+		name: "multiple dynamic params",
+		have: Config{
+			"limit":                "-1",
+			"foo.0.param1":         "parameter",
+			"foo.1.param2":         "custom",
+			"foo.2.does-not-exist": "unrecognized key still triggers creation of defaults",
+		},
+		want: Config{
+			"limit":                "-1",
+			"foo.0.param1":         "parameter",
+			"foo.0.param2":         "",
+			"foo.1.param1":         "foo",
+			"foo.1.param2":         "custom",
+			"foo.2.param1":         "foo",
+			"foo.2.param2":         "",
+			"foo.2.does-not-exist": "unrecognized key still triggers creation of defaults",
+		},
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			is := is.New(t)
+			got := tc.have.Sanitize().
+				ApplyDefaults(params)
+			is.Equal(tc.want, got)
+		})
 	}
 }
 
