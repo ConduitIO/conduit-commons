@@ -49,7 +49,7 @@ func (c Config) Sanitize() Config {
 // configuration, the default value is applied.
 func (c Config) ApplyDefaults(params Parameters) Config {
 	for key, param := range params {
-		if strings.TrimSpace(c[key]) == "" {
+		if strings.TrimSpace(c[key]) == "" { // TODO get value for dynamic key
 			c[key] = param.Default
 		}
 	}
@@ -92,9 +92,9 @@ func (c Config) validateUnrecognizedParameters(params Parameters) []error {
 
 // validateParamType validates that a parameter value is parsable to its assigned type.
 func (c Config) validateParamType(key string, param Parameter) error {
-	value := c[key]
+	value := c[key] // TODO get value for dynamic key
 	// empty value is valid for all types
-	if c[key] == "" {
+	if value == "" {
 		return nil
 	}
 
@@ -127,7 +127,7 @@ func (c Config) validateParamType(key string, param Parameter) error {
 // validateParamValue validates that a configuration value matches all the
 // validations required for the parameter.
 func (c Config) validateParamValue(key string, param Parameter) error {
-	value := c[key]
+	value := c[key] // TODO get value for dynamic key
 	var errs []error
 
 	isRequired := false
@@ -146,6 +146,58 @@ func (c Config) validateParamValue(key string, param Parameter) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+func (c Config) getKeysForParameter(key string) []string {
+	// First break up the key into tokens.
+	tokens := strings.Split(key, "*")
+	if len(tokens) == 1 {
+		// No wildcard in the key, return the key directly.
+		return []string{key}
+	}
+
+	consume := func(s, prefix string) (string, bool) {
+		if !strings.HasPrefix(s, prefix) {
+			// The key does not start with the token, it does not match the pattern.
+			return "", false
+		}
+		return strings.TrimPrefix(s, prefix), true
+	}
+
+	// There is at least one wildcard in the key, we need to manually find all
+	// the keys that match the pattern.
+	var keys []string
+	for k := range c {
+		fullKey := k
+		for i, token := range tokens {
+			var ok bool
+			k, ok = consume(k, token)
+			if !ok {
+				// The key does not start with the token, it does not match the pattern.
+				break
+			}
+			if i == len(tokens)-1 {
+				if k != "" && token != "" {
+					// The key is not fully consumed and last token is not a wildcard,
+					// it does not match the pattern.
+					break
+				}
+				// We checked all tokens and the key matches the pattern.
+				keys = append(keys, fullKey)
+				break
+			}
+
+			// Between tokens there is a wildcard, we need to strip the key until
+			// the next ".".
+			_, k, ok = strings.Cut(k, ".")
+			if !ok {
+				// The key does not have a "." after the token, it does not match the pattern.
+				break
+			}
+			k = "." + k // Add the "." back to the key.
+		}
+	}
+	return keys
 }
 
 // DecodeInto copies configuration values into the target object.

@@ -17,6 +17,7 @@ package config
 import (
 	"errors"
 	"regexp"
+	"sort"
 	"testing"
 	"time"
 
@@ -587,4 +588,99 @@ func TestBreakUpConfig_Conflict_Value(t *testing.T) {
 	}
 	got := input.breakUp()
 	is.Equal(want, got)
+}
+
+func TestConfig_getValuesForParameter(t *testing.T) {
+	cfg := Config{
+		"ignore": "me",
+
+		// foo
+		"test.foo.val": "0",
+
+		"test.foo.format.baz.type":    "0",
+		"test.foo.format.baz.options": "0",
+
+		"test.foo.format.qux.type":    "0",
+		"test.foo.format.qux.options": "0",
+
+		// bar
+		"test.bar.val": "0",
+
+		"test.bar.format.baz.type":    "0",
+		"test.bar.format.baz.options": "0",
+
+		"test.bar.format.qux.type":    "0",
+		"test.bar.format.qux.options": "0",
+	}
+
+	testCases := []struct {
+		key  string
+		want []string
+	}{{
+		key:  "test.foo.val",
+		want: []string{"test.foo.val"},
+	}, {
+		key:  "blah",
+		want: []string{"blah"},
+	}, {
+		key:  "test.*.blah",
+		want: nil,
+	}, {
+		key: "test.*",
+		want: []string{
+			"test.foo.val",
+			"test.foo.format.baz.type",
+			"test.foo.format.baz.options",
+			"test.foo.format.qux.type",
+			"test.foo.format.qux.options",
+			"test.bar.val",
+			"test.bar.format.baz.type",
+			"test.bar.format.baz.options",
+			"test.bar.format.qux.type",
+			"test.bar.format.qux.options",
+		},
+	}, {
+		key:  "test.*.val",
+		want: []string{"test.foo.val", "test.bar.val"},
+	}, {
+		key: "test.*.format.*",
+		want: []string{
+			"test.foo.format.baz.type",
+			"test.foo.format.baz.options",
+			"test.foo.format.qux.type",
+			"test.foo.format.qux.options",
+			"test.bar.format.baz.type",
+			"test.bar.format.baz.options",
+			"test.bar.format.qux.type",
+			"test.bar.format.qux.options",
+		},
+	}, {
+		key: "test.*.format.*.type",
+		want: []string{
+			"test.foo.format.baz.type",
+			"test.foo.format.qux.type",
+			"test.bar.format.baz.type",
+			"test.bar.format.qux.type",
+		},
+	}, {
+		key: "test.*.format.*.options",
+		want: []string{
+			"test.foo.format.baz.options",
+			"test.foo.format.qux.options",
+			"test.bar.format.baz.options",
+			"test.bar.format.qux.options",
+		},
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.key, func(t *testing.T) {
+			is := is.New(t)
+			got := cfg.getKeysForParameter(tc.key)
+
+			sort.Strings(tc.want)
+			sort.Strings(got)
+			is.Equal(tc.want, got)
+		})
+	}
+
 }
