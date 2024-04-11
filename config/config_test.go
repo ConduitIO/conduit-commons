@@ -429,6 +429,10 @@ func TestParseConfig_Embedded_Struct(t *testing.T) {
 
 func TestParseConfig_All_Types(t *testing.T) {
 	is := is.New(t)
+	type structMapVal struct {
+		MyString string
+		MyInt    int
+	}
 	type testCfg struct {
 		MyString      string
 		MyBool1       bool
@@ -459,6 +463,12 @@ func TestParseConfig_All_Types(t *testing.T) {
 		MySlice      []string
 		MyIntSlice   []int
 		MyFloatSlice []float32
+
+		Nested struct {
+			MyString string
+		}
+		StringMap map[string]string
+		StructMap map[string]structMapVal
 	}
 
 	input := Config{
@@ -488,6 +498,17 @@ func TestParseConfig_All_Types(t *testing.T) {
 		"myslice":      "1,2,3,4",
 		"myIntSlice":   "1,2,3,4",
 		"myFloatSlice": "1.1,2.2",
+
+		"nested.mystring": "string",
+
+		"stringmap.foo":     "1",
+		"stringmap.bar":     "2",
+		"stringmap.baz.qux": "3",
+
+		"structmap.foo.mystring": "foo-name",
+		"structmap.foo.myint":    "1",
+		"structmap.bar.mystring": "bar-name",
+		"structmap.bar.myint":    "-1",
 	}
 	want := testCfg{
 		MyString:          "string",
@@ -514,6 +535,16 @@ func TestParseConfig_All_Types(t *testing.T) {
 		MySlice:           []string{"1", "2", "3", "4"},
 		MyIntSlice:        []int{1, 2, 3, 4},
 		MyFloatSlice:      []float32{1.1, 2.2},
+		Nested:            struct{ MyString string }{MyString: "string"},
+		StringMap: map[string]string{
+			"foo":     "1",
+			"bar":     "2",
+			"baz.qux": "3",
+		},
+		StructMap: map[string]structMapVal{
+			"foo": {MyString: "foo-name", MyInt: 1},
+			"bar": {MyString: "bar-name", MyInt: -1},
+		},
 	}
 
 	var result testCfg

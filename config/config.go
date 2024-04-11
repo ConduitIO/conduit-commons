@@ -160,6 +160,8 @@ func (c Config) DecodeInto(target any, hookFunc ...mapstructure.DecodeHookFunc) 
 		DecodeHook: mapstructure.ComposeDecodeHookFunc(
 			append(
 				hookFunc,
+				mapStringHookFunc(),
+				mapStructHookFunc(),
 				emptyStringToZeroValueHookFunc(),
 				mapstructure.StringToTimeDurationHookFunc(),
 				mapstructure.StringToSliceHookFunc(","),
@@ -213,5 +215,55 @@ func emptyStringToZeroValueHookFunc() mapstructure.DecodeHookFunc {
 			return data, nil
 		}
 		return reflect.New(t).Elem().Interface(), nil
+	}
+}
+
+func mapStringHookFunc() mapstructure.DecodeHookFunc {
+	return func(
+		f reflect.Type,
+		t reflect.Type,
+		data interface{}) (interface{}, error) {
+		if f.Kind() != reflect.Map || f.Elem().Kind() != reflect.Interface ||
+			t.Kind() != reflect.Map || t.Elem().Kind() != reflect.String {
+			return data, nil
+		}
+
+		// no need to assert, we know it's a map[string]any
+		dataMap := data.(map[string]any)
+
+		// remove all keys with maps
+		for k, v := range dataMap {
+			if reflect.TypeOf(v).Kind() == reflect.Map {
+				delete(dataMap, k)
+			}
+		}
+
+		return dataMap, nil
+	}
+}
+
+func mapStructHookFunc() mapstructure.DecodeHookFunc {
+	return func(
+		f reflect.Type,
+		t reflect.Type,
+		data interface{}) (interface{}, error) {
+		if f.Kind() != reflect.Map || f.Elem().Kind() != reflect.Interface ||
+			t.Kind() != reflect.Map || t.Elem().Kind() != reflect.Struct {
+			return data, nil
+		}
+
+		// no need to assert, we know it's a map[string]any
+		dataMap := data.(map[string]any)
+
+		// remove all keys with a dot that contains a value with a string
+		for k, v := range dataMap {
+			_, isString := v.(string)
+			if !isString || !strings.Contains(k, ".") {
+				continue
+			}
+			delete(dataMap, k)
+		}
+
+		return dataMap, nil
 	}
 }
