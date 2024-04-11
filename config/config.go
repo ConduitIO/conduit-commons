@@ -329,13 +329,14 @@ func mapStringHookFunc() mapstructure.DecodeHookFunc {
 	return func(
 		f reflect.Type,
 		t reflect.Type,
-		data interface{}) (interface{}, error) {
+		data interface{},
+	) (interface{}, error) {
 		if f.Kind() != reflect.Map || f.Elem().Kind() != reflect.Interface ||
 			t.Kind() != reflect.Map || t.Elem().Kind() != reflect.String {
 			return data, nil
 		}
 
-		// no need to assert, we know it's a map[string]any
+		//nolint:forcetypeassert // We checked in the condition above and know it's a map[string]any
 		dataMap := data.(map[string]any)
 
 		// remove all keys with maps
@@ -353,13 +354,14 @@ func mapStructHookFunc() mapstructure.DecodeHookFunc {
 	return func(
 		f reflect.Type,
 		t reflect.Type,
-		data interface{}) (interface{}, error) {
+		data interface{},
+	) (interface{}, error) {
 		if f.Kind() != reflect.Map || f.Elem().Kind() != reflect.Interface ||
 			t.Kind() != reflect.Map || t.Elem().Kind() != reflect.Struct {
 			return data, nil
 		}
 
-		// no need to assert, we know it's a map[string]any
+		//nolint:forcetypeassert // We checked in the condition above and know it's a map[string]any
 		dataMap := data.(map[string]any)
 
 		// remove all keys with a dot that contains a value with a string

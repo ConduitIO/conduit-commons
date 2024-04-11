@@ -1013,5 +1013,4 @@ func TestConfig_getValuesForParameter(t *testing.T) {
 			is.Equal(cmp.Diff(tc.want, got), "")
 		})
 	}
-
 }
