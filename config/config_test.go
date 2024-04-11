@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/matryer/is"
 )
 
@@ -611,6 +612,12 @@ func TestConfig_getValuesForParameter(t *testing.T) {
 
 		"test.bar.format.qux.type":    "0",
 		"test.bar.format.qux.options": "0",
+
+		// include
+		"test.include.me": "yes",
+
+		// ignore this, it's not nested
+		"test.ignore": "0",
 	}
 
 	testCases := []struct {
@@ -623,8 +630,16 @@ func TestConfig_getValuesForParameter(t *testing.T) {
 		key:  "blah",
 		want: []string{"blah"},
 	}, {
-		key:  "test.*.blah",
-		want: nil,
+		key: "test.*.blah",
+		want: []string{
+			// Note that the function returns keys that don't exist in the config,
+			// it figures out the potential keys based on matched wildcards.
+			// However, it does not return test.ignore.blah, as test.ignore does
+			// not contain any nested keys.
+			"test.foo.blah",
+			"test.bar.blah",
+			"test.include.blah",
+		},
 	}, {
 		key: "test.*",
 		want: []string{
@@ -638,10 +653,16 @@ func TestConfig_getValuesForParameter(t *testing.T) {
 			"test.bar.format.baz.options",
 			"test.bar.format.qux.type",
 			"test.bar.format.qux.options",
+			"test.include.me",
+			"test.ignore",
 		},
 	}, {
-		key:  "test.*.val",
-		want: []string{"test.foo.val", "test.bar.val"},
+		key: "test.*.val",
+		want: []string{
+			"test.foo.val",
+			"test.bar.val",
+			"test.include.val",
+		},
 	}, {
 		key: "test.*.format.*",
 		want: []string{
@@ -679,7 +700,7 @@ func TestConfig_getValuesForParameter(t *testing.T) {
 
 			sort.Strings(tc.want)
 			sort.Strings(got)
-			is.Equal(tc.want, got)
+			is.Equal(cmp.Diff(tc.want, got), "")
 		})
 	}
 

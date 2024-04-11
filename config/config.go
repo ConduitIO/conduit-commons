@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -50,8 +51,6 @@ func (c Config) Sanitize() Config {
 func (c Config) ApplyDefaults(params Parameters) Config {
 	for key, param := range params {
 		for _, key := range c.getKeysForParameter(key) {
-			// TODO it's not that easy, we need to check for all keys with the
-			//  same pattern and create them if they don't exist
 			if strings.TrimSpace(c[key]) == "" {
 				c[key] = param.Default
 			}
@@ -87,6 +86,7 @@ func (c Config) Validate(params Parameters) error {
 func (c Config) validateUnrecognizedParameters(params Parameters) []error {
 	var errs []error
 	for key := range c {
+		// TODO dynamic parameters
 		if _, ok := params[key]; !ok {
 			errs = append(errs, fmt.Errorf("%q: %w", key, ErrUnrecognizedParameter))
 		}
@@ -135,10 +135,8 @@ func (c Config) validateParamType(key string, param Parameter) error {
 // validateParamValue validates that a configuration value matches all the
 // validations required for the parameter.
 func (c Config) validateParamValue(key string, param Parameter) error {
-	keys := c.getKeysForParameter(key)
-
 	var errs []error
-	for _, k := range keys {
+	for _, k := range c.getKeysForParameter(key) {
 		value := c[k]
 		var valErrs []error
 
@@ -184,34 +182,44 @@ func (c Config) getKeysForParameter(key string) []string {
 	for k := range c {
 		fullKey := k
 		for i, token := range tokens {
+			if i == len(tokens)-1 {
+				if k == "" && token != "" {
+					// The key is consumed, but the token is not, it does not match the pattern.
+					// This happens when the last token is not a wildcard and
+					// the key is a leaf.
+					break
+				}
+				// The last token doesn't matter, if the key matched so far, all
+				// wildcards have matched and we can potentially expect a match.
+				// The reason for this is so that we can apply defaults to the
+				// wildcard keys, even if they don't contain a value in the
+				// configuration.
+				if token != "" {
+					// Build potential key
+					fullKey = strings.TrimSuffix(fullKey, k)
+					fullKey += token
+				}
+				keys = append(keys, fullKey)
+				break
+			}
+
 			var ok bool
 			k, ok = consume(k, token)
 			if !ok {
 				// The key does not start with the token, it does not match the pattern.
 				break
 			}
-			if i == len(tokens)-1 {
-				if k != "" && token != "" {
-					// The key is not fully consumed and last token is not a wildcard,
-					// it does not match the pattern.
-					break
-				}
-				// We checked all tokens and the key matches the pattern.
-				keys = append(keys, fullKey)
-				break
-			}
 
 			// Between tokens there is a wildcard, we need to strip the key until
 			// the next ".".
 			_, k, ok = strings.Cut(k, ".")
-			if !ok {
-				// The key does not have a "." after the token, it does not match the pattern.
-				break
+			if ok {
+				k = "." + k // Add the "." back to the key.
 			}
-			k = "." + k // Add the "." back to the key.
 		}
 	}
-	return keys
+	slices.Sort(keys)
+	return slices.Compact(keys)
 }
 
 // DecodeInto copies configuration values into the target object.
