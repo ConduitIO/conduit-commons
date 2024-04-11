@@ -190,6 +190,7 @@ func (s *Select[T]) updateSelectFunc() {
 			if !ok { // a channel was closed
 				return chosen - 1, s.zeroT, ok
 			}
+			//nolint:forcetypeassert // value is of type T
 			return chosen - 1, value.Interface().(T), ok
 		}
 	}
