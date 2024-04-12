@@ -247,7 +247,7 @@ func TestConfig_Validate_Validations(t *testing.T) {
 		wantErr: true,
 		err:     ErrGreaterThanValidationFail,
 	}, {
-		name:   "greater than validation failed",
+		name:   "greater than validation pass",
 		config: Config{"param1": "20"},
 		params: Parameters{
 			"param1": {Validations: []Validation{
@@ -385,7 +385,7 @@ func TestConfig_Validate_Validations(t *testing.T) {
 		wantErr: true,
 		err:     ErrGreaterThanValidationFail,
 	}, {
-		name:   "dynamic: greater than validation failed",
+		name:   "dynamic: greater than validation pass",
 		config: Config{"foo.0.param1": "20"},
 		params: Parameters{
 			"foo.*.param1": {Validations: []Validation{
