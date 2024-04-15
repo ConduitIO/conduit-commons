@@ -17,9 +17,11 @@ package config
 import (
 	"errors"
 	"regexp"
+	"sort"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/matryer/is"
 )
 
@@ -103,6 +105,72 @@ func TestConfig_Validate_ParameterType(t *testing.T) {
 		config:  Config{"param1": "some-data"},
 		params:  Parameters{"param1": {Type: ParameterTypeFile}},
 		wantErr: false,
+	}, {
+		// ---------------------- DYNAMIC PARAMETER TESTS ----------------------
+		name:    "dynamic: valid type number",
+		config:  Config{"foo.0.param1": "3"},
+		params:  Parameters{"foo.*.param1": {Default: "3.3", Type: ParameterTypeFloat}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: invalid type float",
+		config:  Config{"foo.0.param1": "not-a-number"},
+		params:  Parameters{"foo.*.param1": {Default: "3.3", Type: ParameterTypeFloat}},
+		wantErr: true,
+	}, {
+		name:    "dynamic: valid default type float",
+		config:  Config{"foo.0.param1": ""},
+		params:  Parameters{"foo.*.param1": {Default: "3", Type: ParameterTypeFloat}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: valid type int",
+		config:  Config{"foo.0.param1": "3"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeInt}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: invalid type int",
+		config:  Config{"foo.0.param1": "3.3"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeInt}},
+		wantErr: true,
+	}, {
+		name:    "dynamic: valid type bool",
+		config:  Config{"foo.0.param1": "1"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeBool}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: valid type bool",
+		config:  Config{"foo.0.param1": "true"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeBool}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: invalid type bool",
+		config:  Config{"foo.0.param1": "not-a-bool"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeBool}},
+		wantErr: true,
+	}, {
+		name:    "dynamic: valid type duration",
+		config:  Config{"foo.0.param1": "1s"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeDuration}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: empty value is valid for all types",
+		config:  Config{"foo.0.param1": ""},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeDuration}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: invalid type duration",
+		config:  Config{"foo.0.param1": "not-a-duration"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeDuration}},
+		wantErr: true,
+	}, {
+		name:    "dynamic: valid type string",
+		config:  Config{"foo.0.param1": "param"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeString}},
+		wantErr: false,
+	}, {
+		name:    "dynamic: valid type file",
+		config:  Config{"foo.0.param1": "some-data"},
+		params:  Parameters{"foo.*.param1": {Type: ParameterTypeFile}},
+		wantErr: false,
 	}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -114,7 +182,7 @@ func TestConfig_Validate_ParameterType(t *testing.T) {
 			if err != nil && tt.wantErr {
 				is.True(errors.Is(err, ErrInvalidParameterType))
 			} else if err != nil || tt.wantErr {
-				t.Errorf("UtilityFunc() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -179,7 +247,7 @@ func TestConfig_Validate_Validations(t *testing.T) {
 		wantErr: true,
 		err:     ErrGreaterThanValidationFail,
 	}, {
-		name:   "greater than validation failed",
+		name:   "greater than validation pass",
 		config: Config{"param1": "20"},
 		params: Parameters{
 			"param1": {Validations: []Validation{
@@ -264,6 +332,144 @@ func TestConfig_Validate_Validations(t *testing.T) {
 			}},
 		},
 		wantErr: false,
+	}, {
+		// ---------------------- DYNAMIC PARAMETER TESTS ----------------------
+		name:   "dynamic: required validation failed",
+		config: Config{"foo.0.param1": ""},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+			}},
+		},
+		wantErr: true,
+		err:     ErrRequiredParameterMissing,
+	}, {
+		name:   "dynamic: required validation pass",
+		config: Config{"foo.0.param1": "value"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+			}},
+		},
+		wantErr: false,
+	}, {
+		name:   "dynamic: less than validation failed",
+		config: Config{"foo.0.param1": "20"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationLessThan{10},
+			}},
+		},
+		wantErr: true,
+		err:     ErrLessThanValidationFail,
+	}, {
+		name:   "dynamic: less than validation pass",
+		config: Config{"foo.0.param1": "0"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationLessThan{10},
+			}},
+		},
+		wantErr: false,
+	}, {
+		name:   "dynamic: greater than validation failed",
+		config: Config{"foo.0.param1": "0"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationGreaterThan{10},
+			}},
+		},
+		wantErr: true,
+		err:     ErrGreaterThanValidationFail,
+	}, {
+		name:   "dynamic: greater than validation pass",
+		config: Config{"foo.0.param1": "20"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationGreaterThan{10},
+			}},
+		},
+		wantErr: false,
+	}, {
+		name:   "dynamic: inclusion validation failed",
+		config: Config{"foo.0.param1": "three"},
+		params: Parameters{
+			"param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationInclusion{[]string{"one", "two"}},
+			}},
+		},
+		wantErr: true,
+		err:     ErrInclusionValidationFail,
+	}, {
+		name:   "dynamic: inclusion validation pass",
+		config: Config{"foo.0.param1": "two"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationInclusion{[]string{"one", "two"}},
+			}},
+		},
+		wantErr: false,
+	}, {
+		name:   "dynamic: exclusion validation failed",
+		config: Config{"foo.0.param1": "one"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationExclusion{[]string{"one", "two"}},
+			}},
+		},
+		wantErr: true,
+		err:     ErrExclusionValidationFail,
+	}, {
+		name:   "dynamic: exclusion validation pass",
+		config: Config{"foo.0.param1": "three"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationExclusion{[]string{"one", "two"}},
+			}},
+		},
+		wantErr: false,
+	}, {
+		name:   "dynamic: regex validation failed",
+		config: Config{"foo.0.param1": "a-a"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationRegex{regexp.MustCompile("[a-z]-[1-9]")},
+			}},
+		},
+		wantErr: true,
+		err:     ErrRegexValidationFail,
+	}, {
+		name:   "dynamic: regex validation pass",
+		config: Config{"foo.0.param1": "a-8"},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationRequired{},
+				ValidationRegex{regexp.MustCompile("[a-z]-[1-9]")},
+			}},
+		},
+		wantErr: false,
+	}, {
+		name:   "dynamic: optional validation pass",
+		config: Config{"foo.0.param1": ""},
+		params: Parameters{
+			"foo.*.param1": {Validations: []Validation{
+				ValidationInclusion{[]string{"one", "two"}},
+				ValidationExclusion{[]string{"three", "four"}},
+				ValidationRegex{regexp.MustCompile("[a-z]")},
+				ValidationGreaterThan{10},
+				ValidationLessThan{20},
+			}},
+		},
+		wantErr: false,
 	}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -275,7 +481,45 @@ func TestConfig_Validate_Validations(t *testing.T) {
 			if err != nil && tt.wantErr {
 				is.True(errors.Is(err, tt.err))
 			} else if err != nil || tt.wantErr {
-				t.Errorf("UtilityFunc() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestConfig_Validate_Unrecognized(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  Config
+		params  Parameters
+		wantErr bool
+	}{{
+		name:    "parameters empty",
+		config:  Config{"param1": "3"},
+		params:  Parameters{},
+		wantErr: true,
+	}, {
+		name:    "static parameter unrecognized",
+		config:  Config{"param1": "not-a-number"},
+		params:  Parameters{"param2": {Type: ParameterTypeFloat}},
+		wantErr: true,
+	}, {
+		name:    "dynamic parameter unrecognized",
+		config:  Config{"foo.0.param1.": ""},
+		params:  Parameters{"foo.*.param2": {Type: ParameterTypeFloat}},
+		wantErr: true,
+	}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			is := is.New(t)
+			err := tt.config.Sanitize().
+				ApplyDefaults(tt.params).
+				Validate(tt.params)
+
+			if err != nil && tt.wantErr {
+				is.True(errors.Is(err, ErrUnrecognizedParameter))
+			} else if err != nil || tt.wantErr {
+				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
@@ -338,6 +582,74 @@ OUTER:
 	}
 	if len(want) != 0 {
 		t.Fatalf("expected more errors: %v", want)
+	}
+}
+
+func TestConfig_ApplyDefaults(t *testing.T) {
+	params := map[string]Parameter{
+		"limit":        {Type: ParameterTypeInt, Default: "1"},
+		"foo.*.param1": {Type: ParameterTypeString, Default: "foo"},
+		"foo.*.param2": {Type: ParameterTypeString},
+	}
+
+	testCases := []struct {
+		name string
+		have Config
+		want Config
+	}{{
+		name: "empty",
+		have: Config{},
+		want: Config{
+			"limit": "1",
+		},
+	}, {
+		name: "foo.0.param2",
+		have: Config{
+			"foo.0.param2": "bar",
+		},
+		want: Config{
+			"limit":        "1",
+			"foo.0.param1": "foo",
+			"foo.0.param2": "bar",
+		},
+	}, {
+		name: "foo.0.param1",
+		have: Config{
+			"limit":        "-1",
+			"foo.0.param1": "custom",
+		},
+		want: Config{
+			"limit":        "-1",
+			"foo.0.param1": "custom",
+			"foo.0.param2": "",
+		},
+	}, {
+		name: "multiple dynamic params",
+		have: Config{
+			"limit":                "-1",
+			"foo.0.param1":         "parameter",
+			"foo.1.param2":         "custom",
+			"foo.2.does-not-exist": "unrecognized key still triggers creation of defaults",
+		},
+		want: Config{
+			"limit":                "-1",
+			"foo.0.param1":         "parameter",
+			"foo.0.param2":         "",
+			"foo.1.param1":         "foo",
+			"foo.1.param2":         "custom",
+			"foo.2.param1":         "foo",
+			"foo.2.param2":         "",
+			"foo.2.does-not-exist": "unrecognized key still triggers creation of defaults",
+		},
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			is := is.New(t)
+			got := tc.have.Sanitize().
+				ApplyDefaults(params)
+			is.Equal(tc.want, got)
+		})
 	}
 }
 
@@ -429,6 +741,10 @@ func TestParseConfig_Embedded_Struct(t *testing.T) {
 
 func TestParseConfig_All_Types(t *testing.T) {
 	is := is.New(t)
+	type structMapVal struct {
+		MyString string
+		MyInt    int
+	}
 	type testCfg struct {
 		MyString      string
 		MyBool1       bool
@@ -459,6 +775,12 @@ func TestParseConfig_All_Types(t *testing.T) {
 		MySlice      []string
 		MyIntSlice   []int
 		MyFloatSlice []float32
+
+		Nested struct {
+			MyString string
+		}
+		StringMap map[string]string
+		StructMap map[string]structMapVal
 	}
 
 	input := Config{
@@ -488,6 +810,17 @@ func TestParseConfig_All_Types(t *testing.T) {
 		"myslice":      "1,2,3,4",
 		"myIntSlice":   "1,2,3,4",
 		"myFloatSlice": "1.1,2.2",
+
+		"nested.mystring": "string",
+
+		"stringmap.foo":     "1",
+		"stringmap.bar":     "2",
+		"stringmap.baz.qux": "3",
+
+		"structmap.foo.mystring": "foo-name",
+		"structmap.foo.myint":    "1",
+		"structmap.bar.mystring": "bar-name",
+		"structmap.bar.myint":    "-1",
 	}
 	want := testCfg{
 		MyString:          "string",
@@ -514,6 +847,16 @@ func TestParseConfig_All_Types(t *testing.T) {
 		MySlice:           []string{"1", "2", "3", "4"},
 		MyIntSlice:        []int{1, 2, 3, 4},
 		MyFloatSlice:      []float32{1.1, 2.2},
+		Nested:            struct{ MyString string }{MyString: "string"},
+		StringMap: map[string]string{
+			"foo":     "1",
+			"bar":     "2",
+			"baz.qux": "3",
+		},
+		StructMap: map[string]structMapVal{
+			"foo": {MyString: "foo-name", MyInt: 1},
+			"bar": {MyString: "bar-name", MyInt: -1},
+		},
 	}
 
 	var result testCfg
@@ -556,4 +899,147 @@ func TestBreakUpConfig_Conflict_Value(t *testing.T) {
 	}
 	got := input.breakUp()
 	is.Equal(want, got)
+}
+
+func TestConfig_getValuesForParameter(t *testing.T) {
+	cfg := Config{
+		"ignore":          "me",
+		"ignore.foo.this": "me",
+
+		// foo
+		"test.foo.val": "0",
+
+		"test.foo.format.baz.type":    "0",
+		"test.foo.format.baz.options": "0",
+
+		"test.foo.format.qux.type":    "0",
+		"test.foo.format.qux.options": "0",
+
+		// bar
+		"test.bar.val": "0",
+
+		"test.bar.format.baz.type":    "0",
+		"test.bar.format.baz.options": "0",
+
+		"test.bar.format.qux.type":    "0",
+		"test.bar.format.qux.options": "0",
+
+		// include
+		"test.include.me": "yes",
+
+		// ignore this, it's not nested
+		"test.ignore": "0",
+	}
+
+	testCases := []struct {
+		key  string
+		want []string
+	}{{
+		key:  "test.foo.val",
+		want: []string{"test.foo.val"},
+	}, {
+		key:  "blah",
+		want: []string{"blah"},
+	}, {
+		key: "test.*.blah",
+		want: []string{
+			// Note that the function returns keys that don't exist in the config,
+			// it figures out the potential keys based on matched wildcards.
+			// However, it does not return test.ignore.blah, as test.ignore does
+			// not contain any nested keys.
+			"test.foo.blah",
+			"test.bar.blah",
+			"test.include.blah",
+		},
+	}, {
+		key: "test.*",
+		want: []string{
+			"test.foo.val",
+			"test.foo.format.baz.type",
+			"test.foo.format.baz.options",
+			"test.foo.format.qux.type",
+			"test.foo.format.qux.options",
+			"test.bar.val",
+			"test.bar.format.baz.type",
+			"test.bar.format.baz.options",
+			"test.bar.format.qux.type",
+			"test.bar.format.qux.options",
+			"test.include.me",
+			"test.ignore",
+		},
+	}, {
+		key: "test.*.val",
+		want: []string{
+			"test.foo.val",
+			"test.bar.val",
+			"test.include.val",
+		},
+	}, {
+		key: "test.*.format.*",
+		want: []string{
+			"test.foo.format.baz.type",
+			"test.foo.format.baz.options",
+			"test.foo.format.qux.type",
+			"test.foo.format.qux.options",
+			"test.bar.format.baz.type",
+			"test.bar.format.baz.options",
+			"test.bar.format.qux.type",
+			"test.bar.format.qux.options",
+		},
+	}, {
+		key: "test.*.format.*.type",
+		want: []string{
+			"test.foo.format.baz.type",
+			"test.foo.format.qux.type",
+			"test.bar.format.baz.type",
+			"test.bar.format.qux.type",
+		},
+	}, {
+		key: "test.*.format.*.options",
+		want: []string{
+			"test.foo.format.baz.options",
+			"test.foo.format.qux.options",
+			"test.bar.format.baz.options",
+			"test.bar.format.qux.options",
+		},
+	}, {
+		key: "*",
+		want: []string{
+			"ignore",
+			"ignore.foo.this",
+			"test.foo.val",
+			"test.foo.format.baz.type",
+			"test.foo.format.baz.options",
+			"test.foo.format.qux.type",
+			"test.foo.format.qux.options",
+			"test.bar.val",
+			"test.bar.format.baz.type",
+			"test.bar.format.baz.options",
+			"test.bar.format.qux.type",
+			"test.bar.format.qux.options",
+			"test.include.me",
+			"test.ignore",
+		},
+	}, {
+		key: "*.foo.*",
+		want: []string{
+			"ignore.foo.this",
+			"test.foo.val",
+			"test.foo.format.baz.type",
+			"test.foo.format.baz.options",
+			"test.foo.format.qux.type",
+			"test.foo.format.qux.options",
+		},
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.key, func(t *testing.T) {
+			is := is.New(t)
+			got := cfg.getKeysForParameter(tc.key)
+
+			sort.Strings(tc.want)
+			sort.Strings(got)
+			is.Equal(cmp.Diff(tc.want, got), "")
+		})
+	}
 }
