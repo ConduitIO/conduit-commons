@@ -30,6 +30,7 @@ import (
 	"unicode"
 
 	"github.com/conduitio/conduit-commons/config"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -123,7 +124,7 @@ func parsePackage(path string) (*ast.Package, error) {
 		return nil, fmt.Errorf("no source-code package in directory %s", path)
 	}
 	if len(pkgs) > 1 {
-		return nil, fmt.Errorf("multiple packages in directory %s", path)
+		return nil, fmt.Errorf("multiple packages %v in directory %s", maps.Keys(pkgs), path)
 	}
 	for _, v := range pkgs {
 		return v, nil // return first package
