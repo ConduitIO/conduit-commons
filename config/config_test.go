@@ -903,7 +903,8 @@ func TestBreakUpConfig_Conflict_Value(t *testing.T) {
 
 func TestConfig_getValuesForParameter(t *testing.T) {
 	cfg := Config{
-		"ignore": "me",
+		"ignore":          "me",
+		"ignore.foo.this": "me",
 
 		// foo
 		"test.foo.val": "0",
@@ -1000,6 +1001,34 @@ func TestConfig_getValuesForParameter(t *testing.T) {
 			"test.foo.format.qux.options",
 			"test.bar.format.baz.options",
 			"test.bar.format.qux.options",
+		},
+	}, {
+		key: "*",
+		want: []string{
+			"ignore",
+			"ignore.foo.this",
+			"test.foo.val",
+			"test.foo.format.baz.type",
+			"test.foo.format.baz.options",
+			"test.foo.format.qux.type",
+			"test.foo.format.qux.options",
+			"test.bar.val",
+			"test.bar.format.baz.type",
+			"test.bar.format.baz.options",
+			"test.bar.format.qux.type",
+			"test.bar.format.qux.options",
+			"test.include.me",
+			"test.ignore",
+		},
+	}, {
+		key: "*.foo.*",
+		want: []string{
+			"ignore.foo.this",
+			"test.foo.val",
+			"test.foo.format.baz.type",
+			"test.foo.format.baz.options",
+			"test.foo.format.qux.type",
+			"test.foo.format.qux.options",
 		},
 	}}
 
