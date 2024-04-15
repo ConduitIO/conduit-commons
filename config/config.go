@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -49,8 +50,10 @@ func (c Config) Sanitize() Config {
 // configuration, the default value is applied.
 func (c Config) ApplyDefaults(params Parameters) Config {
 	for key, param := range params {
-		if strings.TrimSpace(c[key]) == "" {
-			c[key] = param.Default
+		for _, key := range c.getKeysForParameter(key) {
+			if strings.TrimSpace(c[key]) == "" {
+				c[key] = param.Default
+			}
 		}
 	}
 	return c
@@ -83,7 +86,24 @@ func (c Config) Validate(params Parameters) error {
 func (c Config) validateUnrecognizedParameters(params Parameters) []error {
 	var errs []error
 	for key := range c {
-		if _, ok := params[key]; !ok {
+		if _, ok := params[key]; ok {
+			// Direct match.
+			continue
+		}
+		// Check if the key is a wildcard key.
+		match := false
+		for pattern := range params {
+			if !strings.Contains(pattern, "*") {
+				continue
+			}
+			// Check if the key matches the wildcard key.
+			if c.matchParameterKey(key, pattern) {
+				match = true
+				break
+			}
+		}
+
+		if !match {
 			errs = append(errs, fmt.Errorf("%q: %w", key, ErrUnrecognizedParameter))
 		}
 	}
@@ -92,60 +112,150 @@ func (c Config) validateUnrecognizedParameters(params Parameters) []error {
 
 // validateParamType validates that a parameter value is parsable to its assigned type.
 func (c Config) validateParamType(key string, param Parameter) error {
-	value := c[key]
-	// empty value is valid for all types
-	if c[key] == "" {
-		return nil
-	}
+	keys := c.getKeysForParameter(key)
 
-	//nolint:exhaustive // type ParameterTypeFile and ParameterTypeString don't need type validations (both are strings or byte slices)
-	switch param.Type {
-	case ParameterTypeInt:
-		_, err := strconv.Atoi(value)
-		if err != nil {
-			return fmt.Errorf("error validating %q: %q value is not an integer: %w", key, value, ErrInvalidParameterType)
+	var errs []error
+	for _, k := range keys {
+		value := c[k]
+		// empty value is valid for all types
+		if value == "" {
+			continue
 		}
-	case ParameterTypeFloat:
-		_, err := strconv.ParseFloat(value, 64)
-		if err != nil {
-			return fmt.Errorf("error validating %q: %q value is not a float: %w", key, value, ErrInvalidParameterType)
-		}
-	case ParameterTypeDuration:
-		_, err := time.ParseDuration(value)
-		if err != nil {
-			return fmt.Errorf("error validating %q: %q value is not a duration: %w", key, value, ErrInvalidParameterType)
-		}
-	case ParameterTypeBool:
-		_, err := strconv.ParseBool(value)
-		if err != nil {
-			return fmt.Errorf("error validating %q: %q value is not a boolean: %w", key, value, ErrInvalidParameterType)
+		//nolint:exhaustive // type ParameterTypeFile and ParameterTypeString don't need type validations (both are strings or byte slices)
+		switch param.Type {
+		case ParameterTypeInt:
+			_, err := strconv.Atoi(value)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("error validating %q: %q value is not an integer: %w", k, value, ErrInvalidParameterType))
+			}
+		case ParameterTypeFloat:
+			_, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("error validating %q: %q value is not a float: %w", k, value, ErrInvalidParameterType))
+			}
+		case ParameterTypeDuration:
+			_, err := time.ParseDuration(value)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("error validating %q: %q value is not a duration: %w", k, value, ErrInvalidParameterType))
+			}
+		case ParameterTypeBool:
+			_, err := strconv.ParseBool(value)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("error validating %q: %q value is not a boolean: %w", k, value, ErrInvalidParameterType))
+			}
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // validateParamValue validates that a configuration value matches all the
 // validations required for the parameter.
 func (c Config) validateParamValue(key string, param Parameter) error {
-	value := c[key]
 	var errs []error
+	for _, k := range c.getKeysForParameter(key) {
+		value := c[k]
+		var valErrs []error
 
-	isRequired := false
-	for _, v := range param.Validations {
-		if _, ok := v.(ValidationRequired); ok {
-			isRequired = true
+		isRequired := false
+		for _, v := range param.Validations {
+			if _, ok := v.(ValidationRequired); ok {
+				isRequired = true
+			}
+			err := v.Validate(value)
+			if err != nil {
+				valErrs = append(valErrs, fmt.Errorf("error validating %q: %w", k, err))
+				continue
+			}
 		}
-		err := v.Validate(value)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("error validating %q: %w", key, err))
-			continue
+		if value == "" && !isRequired {
+			continue // empty optional parameter is valid
 		}
-	}
-	if value == "" && !isRequired {
-		return nil // empty optional parameter is valid
+		errs = append(errs, valErrs...)
 	}
 
 	return errors.Join(errs...)
+}
+
+func (c Config) getKeysForParameter(key string) []string {
+	// First break up the key into tokens.
+	tokens := strings.Split(key, "*")
+	if len(tokens) == 1 {
+		// No wildcard in the key, return the key directly.
+		return []string{key}
+	}
+
+	// There is at least one wildcard in the key, we need to manually find all
+	// the keys that match the pattern.
+	var keys []string
+	for k := range c {
+		fullKey := k
+		for i, token := range tokens {
+			if i == len(tokens)-1 {
+				if k == "" && token != "" {
+					// The key is consumed, but the token is not, it does not match the pattern.
+					// This happens when the last token is not a wildcard and
+					// the key is a leaf.
+					// e.g. param: "collection.*.format", key: "collection.foo"
+					break
+				}
+				// The last token doesn't matter, if the key matched so far, all
+				// wildcards have matched and we can potentially expect a match.
+				// The reason for this is so that we can apply defaults to the
+				// wildcard keys, even if they don't contain a value in the
+				// configuration.
+				if token != "" {
+					// Build potential key
+					fullKey = strings.TrimSuffix(fullKey, k)
+					fullKey += token
+				}
+				keys = append(keys, fullKey)
+				break
+			}
+
+			var ok bool
+			k, ok = consume(k, token)
+			if !ok {
+				// The key does not start with the token, it does not match the pattern.
+				break
+			}
+
+			// Between tokens there is a wildcard, we need to consume the key
+			// until the next ".". If there is no next ".", the whole key is
+			// consumed.
+			// e.g. "foo.format" -> ".format" or "foo" -> ""
+			if index := strings.IndexRune(k, '.'); index != -1 {
+				k = k[index:]
+			} else {
+				k = ""
+			}
+		}
+	}
+	slices.Sort(keys)
+	return slices.Compact(keys)
+}
+
+func (c Config) matchParameterKey(key, pattern string) bool {
+	tokens := strings.Split(pattern, "*")
+	if len(tokens) == 1 {
+		// No wildcard in the key, compare the key directly.
+		return key == pattern
+	}
+	k := key
+	for _, token := range tokens {
+		var ok bool
+		k, ok = consume(k, token)
+		if !ok {
+			return false
+		}
+
+		// Between tokens there is a wildcard, we need to strip the key until
+		// the next ".".
+		_, k, ok = strings.Cut(k, ".")
+		if ok {
+			k = "." + k // Add the "." back to the key.
+		}
+	}
+	return true
 }
 
 // DecodeInto copies configuration values into the target object.
@@ -160,6 +270,8 @@ func (c Config) DecodeInto(target any, hookFunc ...mapstructure.DecodeHookFunc) 
 		DecodeHook: mapstructure.ComposeDecodeHookFunc(
 			append(
 				hookFunc,
+				mapStringHookFunc(),
+				mapStructHookFunc(),
 				emptyStringToZeroValueHookFunc(),
 				mapstructure.StringToTimeDurationHookFunc(),
 				mapstructure.StringToSliceHookFunc(","),
@@ -214,4 +326,64 @@ func emptyStringToZeroValueHookFunc() mapstructure.DecodeHookFunc {
 		}
 		return reflect.New(t).Elem().Interface(), nil
 	}
+}
+
+func mapStringHookFunc() mapstructure.DecodeHookFunc {
+	return func(
+		f reflect.Type,
+		t reflect.Type,
+		data interface{},
+	) (interface{}, error) {
+		if f.Kind() != reflect.Map || f.Elem().Kind() != reflect.Interface ||
+			t.Kind() != reflect.Map || t.Elem().Kind() != reflect.String {
+			return data, nil
+		}
+
+		//nolint:forcetypeassert // We checked in the condition above and know it's a map[string]any
+		dataMap := data.(map[string]any)
+
+		// remove all keys with maps
+		for k, v := range dataMap {
+			if reflect.TypeOf(v).Kind() == reflect.Map {
+				delete(dataMap, k)
+			}
+		}
+
+		return dataMap, nil
+	}
+}
+
+func mapStructHookFunc() mapstructure.DecodeHookFunc {
+	return func(
+		f reflect.Type,
+		t reflect.Type,
+		data interface{},
+	) (interface{}, error) {
+		if f.Kind() != reflect.Map || f.Elem().Kind() != reflect.Interface ||
+			t.Kind() != reflect.Map || t.Elem().Kind() != reflect.Struct {
+			return data, nil
+		}
+
+		//nolint:forcetypeassert // We checked in the condition above and know it's a map[string]any
+		dataMap := data.(map[string]any)
+
+		// remove all keys with a dot that contains a value with a string
+		for k, v := range dataMap {
+			_, isString := v.(string)
+			if !isString || !strings.Contains(k, ".") {
+				continue
+			}
+			delete(dataMap, k)
+		}
+
+		return dataMap, nil
+	}
+}
+
+func consume(s, prefix string) (string, bool) {
+	if !strings.HasPrefix(s, prefix) {
+		// The key does not start with the token, it does not match the pattern.
+		return "", false
+	}
+	return strings.TrimPrefix(s, prefix), true
 }
