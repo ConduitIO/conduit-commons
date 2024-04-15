@@ -219,11 +219,14 @@ func (c Config) getKeysForParameter(key string) []string {
 				break
 			}
 
-			// Between tokens there is a wildcard, we need to strip the key until
-			// the next ".".
-			_, k, ok = strings.Cut(k, ".")
-			if ok {
-				k = "." + k // Add the "." back to the key.
+			// Between tokens there is a wildcard, we need to consume the key
+			// until the next ".". If there is no next ".", the whole key is
+			// consumed.
+			// e.g. "foo.format" -> ".format" or "foo" -> ""
+			if index := strings.IndexRune(k, '.'); index != -1 {
+				k = k[index:]
+			} else {
+				k = ""
 			}
 		}
 	}
