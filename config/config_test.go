@@ -621,7 +621,7 @@ func TestConfig_ApplyDefaults(t *testing.T) {
 		want: Config{
 			"limit":        "-1",
 			"foo.0.param1": "custom",
-			"foo.0.param2": "",
+			// empty defaults are not populated
 		},
 	}, {
 		name: "multiple dynamic params",
@@ -634,11 +634,9 @@ func TestConfig_ApplyDefaults(t *testing.T) {
 		want: Config{
 			"limit":                "-1",
 			"foo.0.param1":         "parameter",
-			"foo.0.param2":         "",
 			"foo.1.param1":         "foo",
 			"foo.1.param2":         "custom",
 			"foo.2.param1":         "foo",
-			"foo.2.param2":         "",
 			"foo.2.does-not-exist": "unrecognized key still triggers creation of defaults",
 		},
 	}}
