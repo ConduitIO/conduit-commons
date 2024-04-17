@@ -51,7 +51,7 @@ func (c Config) Sanitize() Config {
 func (c Config) ApplyDefaults(params Parameters) Config {
 	for key, param := range params {
 		for _, key := range c.getKeysForParameter(key) {
-			if strings.TrimSpace(c[key]) == "" {
+			if strings.TrimSpace(c[key]) == "" && param.Default != "" {
 				c[key] = param.Default
 			}
 		}
