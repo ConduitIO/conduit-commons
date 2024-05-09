@@ -26,12 +26,30 @@ import (
 )
 
 func TestConfig_Sanitize(t *testing.T) {
-	is := is.New(t)
-	have := Config{"   key   ": "   value   "}
-	want := Config{"key": "value"}
+	tests := []struct {
+		name string
+		have Config
+		want Config
+	}{
+		{
+			name: "nil config",
+			have: nil,
+			want: map[string]string{},
+		},
+		{
+			name: "with spaces",
+			have: Config{"   key   ": "   value   "},
+			want: Config{"key": "value"},
+		},
+	}
 
-	have.Sanitize()
-	is.Equal(have, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			is := is.New(t)
+			got := tt.have.Sanitize()
+			is.Equal(got, tt.want)
+		})
+	}
 }
 
 func TestConfig_Validate_ParameterType(t *testing.T) {
