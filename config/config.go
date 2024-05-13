@@ -34,8 +34,12 @@ import (
 type Config map[string]string
 
 // Sanitize removes leading and trailing spaces from all keys and values in the
-// configuration.
+// configuration, and makes sure it's not nil.
 func (c Config) Sanitize() Config {
+	if c == nil {
+		return map[string]string{}
+	}
+
 	for key, val := range c {
 		delete(c, key)
 		key = strings.TrimSpace(key)
