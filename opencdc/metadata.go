@@ -47,7 +47,7 @@ const (
 	// the record's .Payload.After field.
 	MetadataSchemaID = "opencdc.schema.id"
 	// MetadataSchemaType is a Record.Metadata key for the type of the schema of
-	// the record's .Payload.After field
+	// the record's .Payload.After field.
 	MetadataSchemaType = "opencdc.schema.type"
 
 	// MetadataConduitSourcePluginName is a Record.Metadata key for the name of

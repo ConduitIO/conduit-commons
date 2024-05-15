@@ -30,6 +30,8 @@ func TestMetadataConstants(t *testing.T) {
 		MetadataCreatedAt:      opencdcv1.E_MetadataCreatedAt,
 		MetadataReadAt:         opencdcv1.E_MetadataReadAt,
 		MetadataCollection:     opencdcv1.E_MetadataCollection,
+		MetadataSchemaID:       opencdcv1.E_MetadataSchemaId,
+		MetadataSchemaType:     opencdcv1.E_MetadataSchemaType,
 
 		MetadataConduitSourcePluginName:         metadatav1.E_MetadataConduitSourcePluginName,
 		MetadataConduitSourcePluginVersion:      metadatav1.E_MetadataConduitSourcePluginVersion,
