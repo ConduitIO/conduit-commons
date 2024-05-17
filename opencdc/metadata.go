@@ -43,6 +43,12 @@ const (
 	// MetadataCollection is a Record.Metadata key for the name of the collection
 	// where the record originated from and/or where it should be stored.
 	MetadataCollection = "opencdc.collection"
+	// MetadataSchemaID is a Record.Metadata key for the ID of the schema of
+	// the record's .Payload.After field.
+	MetadataSchemaID = "opencdc.schema.id"
+	// MetadataSchemaType is a Record.Metadata key for the type of the schema of
+	// the record's .Payload.After field.
+	MetadataSchemaType = "opencdc.schema.type"
 
 	// MetadataConduitSourcePluginName is a Record.Metadata key for the name of
 	// the source plugin that created this record.
@@ -233,6 +239,28 @@ func (m Metadata) GetConduitDLQNackNodeID() (string, error) {
 // MetadataConduitDLQNackNodeID.
 func (m Metadata) SetConduitDLQNackNodeID(id string) {
 	m[MetadataConduitDLQNackNodeID] = id
+}
+
+// GetSchemaID returns the value for key MetadataSchemaID.
+// If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
+func (m Metadata) GetSchemaID() (string, error) {
+	return m.getValue(MetadataSchemaID)
+}
+
+// SetSchemaID sets the metadata value for key MetadataSchemaID.
+func (m Metadata) SetSchemaID(id string) {
+	m[MetadataSchemaID] = id
+}
+
+// GetSchemaType returns the value for key MetadataSchemaType.
+// If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
+func (m Metadata) GetSchemaType() (string, error) {
+	return m.getValue(MetadataSchemaType)
+}
+
+// SetSchemaType sets the metadata value for key MetadataSchemaType.
+func (m Metadata) SetSchemaType(typeStr string) {
+	m[MetadataSchemaType] = typeStr
 }
 
 // getValue returns the value for a specific key. If the value does not exist or
