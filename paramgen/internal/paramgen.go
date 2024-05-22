@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//nolint:goerr113,wrapcheck // we don't care about wrapping errors here
+//nolint:err113,wrapcheck // we don't care about wrapping errors here
 package internal
 
 import (
