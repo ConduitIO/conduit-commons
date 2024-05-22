@@ -680,7 +680,7 @@ func (p *parameterParser) parseValidation(str string) (config.Validation, error)
 		}
 		// if required=false then do not add a validation
 		if !req {
-			return nil, nil
+			return nil, nil //nolint:nilnil // ignore this validation
 		}
 		return config.ValidationRequired{}, nil
 	case validationLT, validationLessThan:
