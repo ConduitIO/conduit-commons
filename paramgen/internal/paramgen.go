@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//nolint:goerr113,wrapcheck // we don't care about wrapping errors here
+//nolint:err113,wrapcheck // we don't care about wrapping errors here
 package internal
 
 import (
@@ -680,7 +680,7 @@ func (p *parameterParser) parseValidation(str string) (config.Validation, error)
 		}
 		// if required=false then do not add a validation
 		if !req {
-			return nil, nil
+			return nil, nil //nolint:nilnil // ignore this validation
 		}
 		return config.ValidationRequired{}, nil
 	case validationLT, validationLessThan:
