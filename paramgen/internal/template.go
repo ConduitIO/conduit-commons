@@ -74,6 +74,7 @@ type templateData struct {
 func (templateData) Quote(s string) string {
 	return strconv.Quote(s)
 }
+
 func (t templateData) Constant(s string) string {
 	key := toCamelCase(s)
 	return t.Struct + key
