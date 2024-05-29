@@ -17,7 +17,7 @@ package schema
 type Type int32
 
 const (
-	TypeAvro Type = iota
+	TypeAvro Type = iota + 1
 )
 
 type Instance struct {
