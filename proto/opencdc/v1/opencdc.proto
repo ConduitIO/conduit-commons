@@ -13,7 +13,8 @@ option (metadata_created_at) = "opencdc.createdAt";
 option (metadata_read_at) = "opencdc.readAt";
 option (metadata_version) = "opencdc.version";
 option (metadata_collection) = "opencdc.collection";
-option (metadata_schema_id) = "opencdc.schema.id";
+option (metadata_schema_name) = "opencdc.schema.name";
+option (metadata_schema_version) = "opencdc.schema.version";
 option (metadata_schema_type) = "opencdc.schema.type";
 
 // We are (ab)using custom file options to define constants.
@@ -41,12 +42,15 @@ extend google.protobuf.FileOptions {
   // Metadata field "opencdc.collection" can contain the name of the collection
   // where the record originated from and/or where it should be stored.
   string metadata_collection = 10003;
-  // Metadata field "opencdc.schema.id" contains the ID of the schema of
+  // Metadata field "opencdc.schema.name" contains the name of the schema of
   // the record's .Payload.After field.
-  string metadata_schema_id = 10004;
+  string metadata_schema_name = 10004;
+  // Metadata field "opencdc.schema.version" contains the version of the schema of
+  // the record's .Payload.After field.
+  string metadata_schema_version = 10005;
   // Metadata field "opencdc.schema.type" contains the type of the schema of
   // the record's .Payload.After field (currently, the only supported value is "avro")
-  string metadata_schema_type = 10005;
+  string metadata_schema_type = 10006;
 }
 
 // Operation defines what triggered the creation of a record.
