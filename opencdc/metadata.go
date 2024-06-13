@@ -16,6 +16,7 @@ package opencdc
 
 import (
 	"fmt"
+	"github.com/conduitio/conduit-commons/schema"
 	"strconv"
 	"time"
 )
@@ -278,13 +279,23 @@ func (m Metadata) SetSchemaVersion(version int) {
 
 // GetSchemaType returns the value for key MetadataSchemaType.
 // If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
-func (m Metadata) GetSchemaType() (string, error) {
-	return m.getValue(MetadataSchemaType)
+func (m Metadata) GetSchemaType() (schema.Type, error) {
+	typeString, err := m.getValue(MetadataSchemaType)
+	if err != nil {
+		return 0, err
+	}
+
+	switch typeString {
+	case schema.TypeAvro.String():
+		return schema.TypeAvro, nil
+	default:
+		return 0, fmt.Errorf("%q: %w", typeString, ErrUnknownSchemaType)
+	}
 }
 
 // SetSchemaType sets the metadata value for key MetadataSchemaType.
-func (m Metadata) SetSchemaType(typeStr string) {
-	m[MetadataSchemaType] = typeStr
+func (m Metadata) SetSchemaType(t schema.Type) {
+	m[MetadataSchemaType] = t.String()
 }
 
 // getValue returns the value for a specific key. If the value does not exist or
