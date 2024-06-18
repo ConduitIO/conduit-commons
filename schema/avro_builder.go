@@ -68,7 +68,11 @@ func (b *Builder) Build() (*avro.RecordSchema, error) {
 		return nil, b.errs
 	}
 
-	return avro.NewRecordSchema(b.name, b.namespace, b.fields)
+	schema, err := avro.NewRecordSchema(b.name, b.namespace, b.fields)
+	if err != nil {
+		return nil, fmt.Errorf("failed building schema: %w", err)
+	}
+	return schema, nil
 }
 
 func (b *Builder) MarshalJSON() ([]byte, error) {
@@ -78,8 +82,12 @@ func (b *Builder) MarshalJSON() ([]byte, error) {
 
 	schema, err := avro.NewRecordSchema(b.name, b.namespace, b.fields)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed building schema: %w", err)
 	}
 
-	return schema.MarshalJSON()
+	bytes, err := schema.MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("failed marshaling schema to JSON: %w", err)
+	}
+	return bytes, nil
 }

@@ -16,21 +16,22 @@ package schema
 
 import (
 	"fmt"
+
 	"github.com/goccy/go-json"
 	"github.com/hamba/avro/v2"
 )
 
+//nolint:govet // example usage of multiple functions, not only one
 func ExampleAvroBuilder() {
 	bytes, err := NewBuilder("schema_name", "schema_namespace").
 		AddField("int_field", avro.NewPrimitiveSchema(avro.Int, nil), avro.WithDefault(100)).
 		AddFieldWithSchemaBuilder(
 			"enum_field",
 			func() (avro.Schema, error) {
-				return avro.NewEnumSchema("dept_schema", "namespace", []string{"finance", "legal", "eng"})
+				return avro.NewEnumSchema("enum_schema", "enum_namespace", []string{"val1", "val2", "val3"})
 			},
 		).
 		MarshalJSON()
-
 	if err != nil {
 		panic(err)
 	}
