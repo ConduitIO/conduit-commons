@@ -21,6 +21,7 @@ import (
 	"log"
 	"reflect"
 	"strconv"
+	"strings"
 	"text/template"
 
 	"github.com/conduitio/conduit-commons/config"
@@ -39,10 +40,16 @@ import (
 	"github.com/conduitio/conduit-commons/config"
 )
 
+const (
+	{{- range $name, $parameter := $.Parameters }}
+	{{ $.Constant $name }} = {{ $.Quote $name }}
+	{{- end }}
+)
+
 func ({{ $.Struct }}) Parameters() map[string]config.Parameter {
 	return map[string]config.Parameter{
 		{{- range $name, $parameter := .Parameters }}
-		{{ $.Quote $name }}: {
+		{{ $.Constant $name }}: {
 			Default:     {{ $.Quote .Default }},
 			Description: {{ $.Quote .Description }},
 			Type:        config.{{ .GetTypeConstant }},
@@ -66,6 +73,52 @@ type templateData struct {
 
 func (templateData) Quote(s string) string {
 	return strconv.Quote(s)
+}
+
+func (t templateData) Constant(s string) string {
+	key := toCamelCase(s)
+	return t.Struct + key
+}
+
+func (t templateData) HasRegex() bool {
+	for _, p := range t.Parameters {
+		for _, v := range p.Validations {
+			if _, ok := v.(config.ValidationRegex); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func toCamelCase(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+
+	n := strings.Builder{}
+	n.Grow(len(s))
+	capNext := true // cap first letter
+	for _, v := range []byte(s) {
+		vIsCap := v >= 'A' && v <= 'Z'
+		vIsLow := v >= 'a' && v <= 'z'
+		if capNext && vIsLow {
+			v += 'A'
+			v -= 'a'
+		}
+
+		if vIsCap || vIsLow {
+			n.WriteByte(v)
+			capNext = false
+		} else if vIsNum := v >= '0' && v <= '9'; vIsNum {
+			n.WriteByte(v)
+			capNext = true
+		} else {
+			capNext = v == '_' || v == ' ' || v == '-' || v == '.'
+		}
+	}
+	return n.String()
 }
 
 var parameterTypeConstantMapping = map[config.ParameterType]string{
@@ -95,17 +148,6 @@ func (p parameter) GetValidation(index int) string {
 	validationType := reflect.TypeOf(validation).String()
 	validationParameters := fmt.Sprintf("Regex: regexp.MustCompile(%q)", regexValidation.Regex)
 	return fmt.Sprintf("%s{%s}", validationType, validationParameters)
-}
-
-func (t templateData) HasRegex() bool {
-	for _, p := range t.Parameters {
-		for _, v := range p.Validations {
-			if _, ok := v.(config.ValidationRegex); ok {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func GenerateCode(parameters map[string]config.Parameter, packageName string, structName string) string {
