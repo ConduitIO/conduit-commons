@@ -6,8 +6,6 @@ linters-settings:
     allow-unused: false # report any unused nolint directives
     require-explanation: true # require an explanation for nolint directives
     require-specific: true # require nolint directives to mention the specific linter being suppressed
-  gocyclo:
-    min-complexity: 20
   goconst:
     ignore-tests: true
   goheader:

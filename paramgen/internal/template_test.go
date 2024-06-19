@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/conduitio/conduit-commons/config"
+	"github.com/google/go-cmp/cmp"
 	"github.com/matryer/is"
 )
 
@@ -61,9 +62,15 @@ import (
 	"github.com/conduitio/conduit-commons/config"
 )
 
+const (
+	SourceConfigBoolParam   = "bool.param"
+	SourceConfigIntParam    = "int.param"
+	SourceConfigStringParam = "string.param"
+)
+
 func (SourceConfig) Parameters() map[string]config.Parameter {
 	return map[string]config.Parameter{
-		"bool.param": {
+		SourceConfigBoolParam: {
 			Default:     "true",
 			Description: "my bool param",
 			Type:        config.ParameterTypeBool,
@@ -71,7 +78,7 @@ func (SourceConfig) Parameters() map[string]config.Parameter {
 				config.ValidationRegex{Regex: regexp.MustCompile(".*")},
 			},
 		},
-		"int.param": {
+		SourceConfigIntParam: {
 			Default:     "1",
 			Description: "my int param with \"quotes\"",
 			Type:        config.ParameterTypeInt,
@@ -82,7 +89,7 @@ func (SourceConfig) Parameters() map[string]config.Parameter {
 				config.ValidationLessThan{V: 3},
 			},
 		},
-		"string.param": {
+		SourceConfigStringParam: {
 			Default:     "",
 			Description: "simple string param",
 			Type:        config.ParameterTypeString,
@@ -91,7 +98,7 @@ func (SourceConfig) Parameters() map[string]config.Parameter {
 	}
 }
 `
-	is.Equal(got, want)
+	is.Equal("", cmp.Diff(got, want))
 }
 
 func TestGenerateCodeWithoutRegex(t *testing.T) {
@@ -122,9 +129,14 @@ import (
 	"github.com/conduitio/conduit-commons/config"
 )
 
+const (
+	ConfigDurationParam = "duration.param"
+	ConfigIntParam      = "int.param"
+)
+
 func (Config) Parameters() map[string]config.Parameter {
 	return map[string]config.Parameter{
-		"duration.param": {
+		ConfigDurationParam: {
 			Default:     "1s",
 			Description: "my duration param",
 			Type:        config.ParameterTypeDuration,
@@ -132,7 +144,7 @@ func (Config) Parameters() map[string]config.Parameter {
 				config.ValidationInclusion{List: []string{"1s", "2s", "3s"}},
 			},
 		},
-		"int.param": {
+		ConfigIntParam: {
 			Default:     "1",
 			Description: "my int param",
 			Type:        config.ParameterTypeInt,
@@ -141,5 +153,5 @@ func (Config) Parameters() map[string]config.Parameter {
 	}
 }
 `
-	is.Equal(got, want)
+	is.Equal("", cmp.Diff(got, want))
 }
