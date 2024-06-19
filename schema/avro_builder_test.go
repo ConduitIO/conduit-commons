@@ -15,9 +15,10 @@
 package schema
 
 import (
+	"testing"
+
 	"github.com/hamba/avro/v2"
 	"github.com/matryer/is"
-	"testing"
 )
 
 func TestAvroBuilder_Build(t *testing.T) {

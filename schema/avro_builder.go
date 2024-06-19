@@ -21,6 +21,10 @@ import (
 	"github.com/hamba/avro/v2"
 )
 
+// Builder builds avro.RecordSchema instances and marshals them into JSON.
+// Builder accepts arguments for creating fields and creates them internally
+// (i.e. a user doesn't need to create the fields).
+// All errors will be returned as a joined error when marshaling the schema to JSON.
 type Builder struct {
 	errs      error
 	fields    []*avro.Field
@@ -28,6 +32,8 @@ type Builder struct {
 	namespace string
 }
 
+// NewBuilder constructs a new Builder and initializes it
+// with the given name and namespace.
 func NewBuilder(name, namespace string) *Builder {
 	return &Builder{
 		name:      name,
@@ -35,6 +41,9 @@ func NewBuilder(name, namespace string) *Builder {
 	}
 }
 
+// AddField adds a new field with the given name, schema and schema options.
+// If creating the field returns an error, the error is saved, joined with
+// other errors (if any), and returned when marshaling to JSON.
 func (b *Builder) AddField(name string, typ avro.Schema, opts ...avro.SchemaOption) *Builder {
 	f, err := avro.NewField(name, typ, opts...)
 	if err != nil {
@@ -46,6 +55,9 @@ func (b *Builder) AddField(name string, typ avro.Schema, opts ...avro.SchemaOpti
 	return b
 }
 
+// Build builds the underlying schema.
+// Errors that occurred while creating fields or constructing
+// the schema will be returned as a joined error.
 func (b *Builder) Build() (*avro.RecordSchema, error) {
 	if b.errs != nil {
 		return nil, b.errs
@@ -58,6 +70,9 @@ func (b *Builder) Build() (*avro.RecordSchema, error) {
 	return schema, nil
 }
 
+// MarshalJSON marshals the underlying schema to JSON.
+// Errors that occurred while creating fields, constructing
+// the schema or marshaling it will be returned as a joined error.
 func (b *Builder) MarshalJSON() ([]byte, error) {
 	if b.errs != nil {
 		return nil, b.errs
