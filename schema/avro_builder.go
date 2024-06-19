@@ -46,23 +46,6 @@ func (b *Builder) AddField(name string, typ avro.Schema, opts ...avro.SchemaOpti
 	return b
 }
 
-func (b *Builder) AddFieldWithSchemaBuilder(name string, schemaBuilder func() (avro.Schema, error), opts ...avro.SchemaOption) *Builder {
-	typ, err := schemaBuilder()
-	if err != nil {
-		b.errs = errors.Join(b.errs, fmt.Errorf("field %v: %w", name, err))
-		return b
-	}
-
-	f, err := avro.NewField(name, typ, opts...)
-	if err != nil {
-		b.errs = errors.Join(b.errs, fmt.Errorf("field %v: %w", name, err))
-	} else {
-		b.fields = append(b.fields, f)
-	}
-
-	return b
-}
-
 func (b *Builder) Build() (*avro.RecordSchema, error) {
 	if b.errs != nil {
 		return nil, b.errs

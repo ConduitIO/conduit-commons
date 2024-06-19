@@ -23,14 +23,13 @@ import (
 
 //nolint:govet // example usage of multiple functions, not only one
 func ExampleAvroBuilder() {
+	enumSchema, err := avro.NewEnumSchema("enum_schema", "enum_namespace", []string{"val1", "val2", "val3"})
+	if err != nil {
+		panic(err)
+	}
 	bytes, err := NewBuilder("schema_name", "schema_namespace").
 		AddField("int_field", avro.NewPrimitiveSchema(avro.Int, nil), avro.WithDefault(100)).
-		AddFieldWithSchemaBuilder(
-			"enum_field",
-			func() (avro.Schema, error) {
-				return avro.NewEnumSchema("enum_schema", "enum_namespace", []string{"val1", "val2", "val3"})
-			},
-		).
+		AddField("enum_field", enumSchema).
 		MarshalJSON()
 	if err != nil {
 		panic(err)
@@ -48,11 +47,11 @@ func ExampleAvroBuilder() {
 	//     {
 	//       "name": "enum_field",
 	//       "type": {
-	//         "name": "namespace.dept_schema",
+	//         "name": "enum_namespace.enum_schema",
 	//         "symbols": [
-	//           "finance",
-	//           "legal",
-	//           "eng"
+	//           "val1",
+	//           "val2",
+	//           "val3"
 	//         ],
 	//         "type": "enum"
 	//       }
