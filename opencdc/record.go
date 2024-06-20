@@ -17,6 +17,7 @@ package opencdc
 import (
 	"bytes"
 	"fmt"
+
 	"github.com/goccy/go-json"
 )
 
