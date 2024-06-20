@@ -17,8 +17,6 @@ package opencdc
 import (
 	"bytes"
 	"fmt"
-	"github.com/conduitio/conduit-commons/schema"
-
 	"github.com/goccy/go-json"
 )
 
@@ -147,10 +145,4 @@ func (r Record) Clone() Record {
 		},
 	}
 	return clone
-}
-
-func (r Record) AttachSchema(s schema.Instance) {
-	r.Metadata.SetSchemaType(schema.TypeAvro)
-	r.Metadata.SetSchemaName(s.Name)
-	r.Metadata.SetSchemaVersion(s.Version)
 }
