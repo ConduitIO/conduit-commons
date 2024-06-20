@@ -43,7 +43,7 @@ func TestAvroBuilder_Build(t *testing.T) {
 	want, err := wantSchema.MarshalJSON()
 	is.NoErr(err)
 
-	got, err := NewBuilder("schema_name", "schema_namespace").
+	got, err := NewAvroBuilder("schema_name", "schema_namespace").
 		AddField("int_field", avro.NewPrimitiveSchema(avro.Int, nil), avro.WithDefault(100)).
 		AddField("enum_field", enumSchema).
 		MarshalJSON()

@@ -27,7 +27,7 @@ func ExampleAvroBuilder() {
 	if err != nil {
 		panic(err)
 	}
-	bytes, err := NewBuilder("schema_name", "schema_namespace").
+	bytes, err := NewAvroBuilder("schema_name", "schema_namespace").
 		AddField("int_field", avro.NewPrimitiveSchema(avro.Int, nil), avro.WithDefault(100)).
 		AddField("enum_field", enumSchema).
 		MarshalJSON()
