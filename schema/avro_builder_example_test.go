@@ -21,7 +21,6 @@ import (
 	"github.com/hamba/avro/v2"
 )
 
-//nolint:govet // example usage of multiple functions, not only one
 func ExampleAvroBuilder() {
 	enumSchema, err := avro.NewEnumSchema("enum_schema", "enum_namespace", []string{"val1", "val2", "val3"})
 	if err != nil {
