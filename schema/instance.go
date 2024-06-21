@@ -24,8 +24,8 @@ const (
 
 type Instance struct {
 	ID      string
-	Name    string
-	Version int
+	Subject string
+	Version int32
 	Type    Type
 	Bytes   []byte
 }
