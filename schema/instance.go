@@ -25,7 +25,7 @@ const (
 type Instance struct {
 	ID      string
 	Subject string
-	Version int32
+	Version int
 	Type    Type
 	Bytes   []byte
 }

@@ -18,10 +18,10 @@ import "github.com/conduitio/conduit-commons/opencdc"
 
 func AttachToRecord(r opencdc.Record, keySchema, payloadSchema Instance) {
 	r.Metadata.SetKeySchemaType(keySchema.Type.String())
-	r.Metadata.SetKeySchemaName(keySchema.Name)
+	r.Metadata.SetKeySchemaName(keySchema.Subject)
 	r.Metadata.SetKeySchemaVersion(keySchema.Version)
 
 	r.Metadata.SetPayloadSchemaType(payloadSchema.Type.String())
-	r.Metadata.SetPayloadSchemaName(payloadSchema.Name)
+	r.Metadata.SetPayloadSchemaName(payloadSchema.Subject)
 	r.Metadata.SetPayloadSchemaVersion(payloadSchema.Version)
 }
