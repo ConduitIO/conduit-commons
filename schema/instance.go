@@ -23,7 +23,6 @@ const (
 )
 
 type Instance struct {
-	ID      string
 	Subject string
 	Version int
 	Type    Type
