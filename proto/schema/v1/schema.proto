@@ -9,9 +9,9 @@ message Schema {
     TYPE_AVRO = 1;
   }
 
-  string subject = 2;
-  int32 version = 3;
-  Type type = 4;
+  string subject = 1;
+  int32 version = 2;
+  Type type = 3;
   // The schema contents
-  bytes bytes = 5;
+  bytes bytes = 4;
 }
