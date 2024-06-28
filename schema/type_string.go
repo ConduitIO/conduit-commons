@@ -11,9 +11,9 @@ func _() {
 	_ = x[TypeAvro-1]
 }
 
-const _Type_name = "TypeAvro"
+const _Type_name = "avro"
 
-var _Type_index = [...]uint8{0, 8}
+var _Type_index = [...]uint8{0, 4}
 
 func (i Type) String() string {
 	i -= 1
