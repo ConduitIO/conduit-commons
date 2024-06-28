@@ -15,6 +15,7 @@ option (metadata_version) = "opencdc.version";
 option (metadata_collection) = "opencdc.collection";
 option (metadata_key_schema_name) = "opencdc.key.schema.name";
 option (metadata_key_schema_version) = "opencdc.key.schema.version";
+option (metadata_key_schema_type) = "opencdc.key.schema.type";
 option (metadata_payload_schema_name) = "opencdc.payload.schema.name";
 option (metadata_payload_schema_version) = "opencdc.payload.schema.version";
 option (metadata_payload_schema_type) = "opencdc.payload.schema.type";
