@@ -16,11 +16,13 @@ package schema
 
 import "github.com/conduitio/conduit-commons/opencdc"
 
-func AttachToRecord(r opencdc.Record, keySchema, payloadSchema Instance) {
+func AttachKeySchemaToRecord(r opencdc.Record, keySchema Instance) {
 	r.Metadata.SetKeySchemaType(keySchema.Type.String())
 	r.Metadata.SetKeySchemaName(keySchema.Subject)
 	r.Metadata.SetKeySchemaVersion(keySchema.Version)
+}
 
+func AttachPayloadSchemaToRecord(r opencdc.Record, payloadSchema Instance) {
 	r.Metadata.SetPayloadSchemaType(payloadSchema.Type.String())
 	r.Metadata.SetPayloadSchemaName(payloadSchema.Subject)
 	r.Metadata.SetPayloadSchemaVersion(payloadSchema.Version)
