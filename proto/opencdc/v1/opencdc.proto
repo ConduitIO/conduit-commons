@@ -43,24 +43,18 @@ extend google.protobuf.FileOptions {
   // Metadata field "opencdc.collection" can contain the name of the collection
   // where the record originated from and/or where it should be stored.
   string metadata_collection = 10003;
-  // Metadata field "opencdc.key.schema.subject" contains the name of the schema of
+  // Metadata field "opencdc.key.schema.subject" contains the subject of the schema of
   // the record's .Key field.
   string metadata_key_schema_subject = 10004;
   // Metadata field "opencdc.key.schema.version" contains the version of the schema of
   // the record's .Key field.
   string metadata_key_schema_version = 10005;
-  // Metadata field "opencdc.key.schema.type" contains the type of the schema of
-  // the record's .Key field (currently, the only supported value is "avro")
-  string metadata_key_schema_type = 10006;
-  // Metadata field "opencdc.payload.schema.subject" contains the name of the schema of
+  // Metadata field "opencdc.payload.schema.subject" contains the subject of the schema of
   // the record's .Payload fields.
-  string metadata_payload_schema_subject = 10007;
+  string metadata_payload_schema_subject = 10006;
   // Metadata field "opencdc.payload.schema.version" contains the version of the schema of
   // the record's .Payload fields.
-  string metadata_payload_schema_version = 10008;
-  // Metadata field "opencdc.payload.schema.type" contains the type of the schema of
-  // the record's .Payload fields (currently, the only supported value is "avro")
-  string metadata_payload_schema_type = 10009;
+  string metadata_payload_schema_version = 10007;
 }
 
 // Operation defines what triggered the creation of a record.
@@ -82,7 +76,7 @@ message Record {
   // Position uniquely identifies the record.
   bytes position = 1;
 
-  // Operation defines what triggered the creation of a record. There are four
+  // Operation defines what triggered thmetadata_key_schema_typee creation of a record. There are four
   // possibilities: create, update, delete or snapshot. The first three
   // operations are encountered during normal CDC operation, while "snapshot" is
   // meant to represent records during an initial load. Depending on the
