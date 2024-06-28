@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package schema.v1;
+
+message Schema {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    TYPE_AVRO = 1;
+  }
+
+  string subject = 2;
+  int32 version = 3;
+  Type type = 4;
+  // The schema contents
+  bytes bytes = 5;
+}
