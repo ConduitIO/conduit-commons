@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package schema.v1;
 
+// Schema is a representation of a schema in the schema registry.
 message Schema {
   enum Type {
     TYPE_UNSPECIFIED = 0;

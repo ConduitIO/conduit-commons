@@ -66,6 +66,7 @@ func (Schema_Type) EnumDescriptor() ([]byte, []int) {
 	return file_schema_v1_schema_proto_rawDescGZIP(), []int{0, 0}
 }
 
+// Schema is a representation of a schema in the schema registry.
 type Schema struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
