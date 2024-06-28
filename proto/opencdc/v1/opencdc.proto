@@ -13,12 +13,10 @@ option (metadata_created_at) = "opencdc.createdAt";
 option (metadata_read_at) = "opencdc.readAt";
 option (metadata_version) = "opencdc.version";
 option (metadata_collection) = "opencdc.collection";
-option (metadata_key_schema_name) = "opencdc.key.schema.name";
+option (metadata_key_schema_subject) = "opencdc.key.schema.subject";
 option (metadata_key_schema_version) = "opencdc.key.schema.version";
-option (metadata_key_schema_type) = "opencdc.key.schema.type";
-option (metadata_payload_schema_name) = "opencdc.payload.schema.name";
+option (metadata_payload_schema_subject) = "opencdc.payload.schema.subject";
 option (metadata_payload_schema_version) = "opencdc.payload.schema.version";
-option (metadata_payload_schema_type) = "opencdc.payload.schema.type";
 
 // We are (ab)using custom file options to define constants.
 // See https://github.com/protocolbuffers/protobuf/issues/3520#issuecomment-323613839
@@ -45,18 +43,18 @@ extend google.protobuf.FileOptions {
   // Metadata field "opencdc.collection" can contain the name of the collection
   // where the record originated from and/or where it should be stored.
   string metadata_collection = 10003;
-  // Metadata field "opencdc.key.schema.name" contains the name of the schema of
+  // Metadata field "opencdc.key.schema.subject" contains the name of the schema of
   // the record's .Key field.
-  string metadata_key_schema_name = 10004;
+  string metadata_key_schema_subject = 10004;
   // Metadata field "opencdc.key.schema.version" contains the version of the schema of
   // the record's .Key field.
   string metadata_key_schema_version = 10005;
   // Metadata field "opencdc.key.schema.type" contains the type of the schema of
   // the record's .Key field (currently, the only supported value is "avro")
   string metadata_key_schema_type = 10006;
-  // Metadata field "opencdc.payload.schema.name" contains the name of the schema of
+  // Metadata field "opencdc.payload.schema.subject" contains the name of the schema of
   // the record's .Payload fields.
-  string metadata_payload_schema_name = 10007;
+  string metadata_payload_schema_subject = 10007;
   // Metadata field "opencdc.payload.schema.version" contains the version of the schema of
   // the record's .Payload fields.
   string metadata_payload_schema_version = 10008;

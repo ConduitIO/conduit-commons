@@ -44,25 +44,19 @@ const (
 	// where the record originated from and/or where it should be stored.
 	MetadataCollection = "opencdc.collection"
 
-	// MetadataKeySchemaName is a Record.Metadata key for the name of the schema of
+	// MetadataKeySchemaSubject is a Record.Metadata key for the name of the schema of
 	// the record's .Key field.
-	MetadataKeySchemaName = "opencdc.key.schema.name"
+	MetadataKeySchemaSubject = "opencdc.key.schema.subject"
 	// MetadataKeySchemaVersion is a Record.Metadata key for the version of the schema of
 	// the record's .Key field.
 	MetadataKeySchemaVersion = "opencdc.key.schema.version"
-	// MetadataKeySchemaType is a Record.Metadata key for the type of the schema of
-	// the record's .Key field.
-	MetadataKeySchemaType = "opencdc.key.schema.type"
 
-	// MetadataPayloadSchemaName is a Record.Metadata key for the name of the schema of
+	// MetadataPayloadSchemaSubject is a Record.Metadata key for the name of the schema of
 	// the record's .Payload field.
-	MetadataPayloadSchemaName = "opencdc.payload.schema.name"
+	MetadataPayloadSchemaSubject = "opencdc.payload.schema.subject"
 	// MetadataPayloadSchemaVersion is a Record.Metadata key for the version of the schema of
 	// the record's .Payload field.
 	MetadataPayloadSchemaVersion = "opencdc.payload.schema.version"
-	// MetadataPayloadSchemaType is a Record.Metadata key for the type of the schema of
-	// the record's .Payload field.
-	MetadataPayloadSchemaType = "opencdc.payload.schema.type"
 
 	// MetadataConduitSourcePluginName is a Record.Metadata key for the name of
 	// the source plugin that created this record.
@@ -255,15 +249,15 @@ func (m Metadata) SetConduitDLQNackNodeID(id string) {
 	m[MetadataConduitDLQNackNodeID] = id
 }
 
-// GetKeySchemaName returns the value for key MetadataKeySchemaName.
+// GetKeySchemaSubject returns the value for key MetadataKeySchemaSubject.
 // If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
-func (m Metadata) GetKeySchemaName() (string, error) {
-	return m.getValue(MetadataKeySchemaName)
+func (m Metadata) GetKeySchemaSubject() (string, error) {
+	return m.getValue(MetadataKeySchemaSubject)
 }
 
-// SetKeySchemaName sets the metadata value for key MetadataKeySchemaName.
-func (m Metadata) SetKeySchemaName(name string) {
-	m[MetadataKeySchemaName] = name
+// SetKeySchemaSubject sets the metadata value for key MetadataKeySchemaSubject.
+func (m Metadata) SetKeySchemaSubject(subject string) {
+	m[MetadataKeySchemaSubject] = subject
 }
 
 // GetKeySchemaVersion returns the value for key MetadataKeySchemaVersion.
@@ -287,26 +281,15 @@ func (m Metadata) SetKeySchemaVersion(version int) {
 	m[MetadataKeySchemaVersion] = strconv.Itoa(version)
 }
 
-// GetKeySchemaType returns the value for key MetadataKeySchemaType.
+// GetPayloadSchemaSubject returns the value for key MetadataPayloadSchemaSubject.
 // If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
-func (m Metadata) GetKeySchemaType() (string, error) {
-	return m.getValue(MetadataKeySchemaType)
+func (m Metadata) GetPayloadSchemaSubject() (string, error) {
+	return m.getValue(MetadataPayloadSchemaSubject)
 }
 
-// SetKeySchemaType sets the metadata value for key MetadataKeySchemaType.
-func (m Metadata) SetKeySchemaType(t string) {
-	m[MetadataKeySchemaType] = t
-}
-
-// GetPayloadSchemaName returns the value for key MetadataPayloadSchemaName.
-// If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
-func (m Metadata) GetPayloadSchemaName() (string, error) {
-	return m.getValue(MetadataPayloadSchemaName)
-}
-
-// SetPayloadSchemaName sets the metadata value for key MetadataPayloadSchemaName.
-func (m Metadata) SetPayloadSchemaName(name string) {
-	m[MetadataPayloadSchemaName] = name
+// SetPayloadSchemaSubject sets the metadata value for key MetadataPayloadSchemaSubject.
+func (m Metadata) SetPayloadSchemaSubject(subject string) {
+	m[MetadataPayloadSchemaSubject] = subject
 }
 
 // GetPayloadSchemaVersion returns the value for key MetadataPayloadSchemaVersion.
@@ -328,17 +311,6 @@ func (m Metadata) GetPayloadSchemaVersion() (int, error) {
 // SetPayloadSchemaVersion sets the metadata value for key MetadataPayloadSchemaVersion.
 func (m Metadata) SetPayloadSchemaVersion(version int) {
 	m[MetadataPayloadSchemaVersion] = strconv.Itoa(version)
-}
-
-// GetPayloadSchemaType returns the value for key MetadataPayloadSchemaType.
-// If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
-func (m Metadata) GetPayloadSchemaType() (string, error) {
-	return m.getValue(MetadataPayloadSchemaType)
-}
-
-// SetPayloadSchemaType sets the metadata value for key MetadataPayloadSchemaType.
-func (m Metadata) SetPayloadSchemaType(t string) {
-	m[MetadataPayloadSchemaType] = t
 }
 
 // getValue returns the value for a specific key. If the value does not exist or
