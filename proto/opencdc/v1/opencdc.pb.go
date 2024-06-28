@@ -91,7 +91,7 @@ type Record struct {
 
 	// Position uniquely identifies the record.
 	Position []byte `protobuf:"bytes,1,opt,name=position,proto3" json:"position,omitempty"`
-	// Operation defines what triggered thmetadata_key_schema_typee creation of a record. There are four
+	// Operation defines what triggered the creation of a record. There are four
 	// possibilities: create, update, delete or snapshot. The first three
 	// operations are encountered during normal CDC operation, while "snapshot" is
 	// meant to represent records during an initial load. Depending on the
