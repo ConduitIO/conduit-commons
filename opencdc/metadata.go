@@ -44,14 +44,14 @@ const (
 	// where the record originated from and/or where it should be stored.
 	MetadataCollection = "opencdc.collection"
 
-	// MetadataKeySchemaSubject is a Record.Metadata key for the name of the schema of
+	// MetadataKeySchemaSubject is a Record.Metadata key for the subject of the schema of
 	// the record's .Key field.
 	MetadataKeySchemaSubject = "opencdc.key.schema.subject"
 	// MetadataKeySchemaVersion is a Record.Metadata key for the version of the schema of
 	// the record's .Key field.
 	MetadataKeySchemaVersion = "opencdc.key.schema.version"
 
-	// MetadataPayloadSchemaSubject is a Record.Metadata key for the name of the schema of
+	// MetadataPayloadSchemaSubject is a Record.Metadata key for the subject of the schema of
 	// the record's .Payload field.
 	MetadataPayloadSchemaSubject = "opencdc.payload.schema.subject"
 	// MetadataPayloadSchemaVersion is a Record.Metadata key for the version of the schema of
