@@ -12,18 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:generate stringer -type=Type -linecomment
+
 package schema
 
 type Type int32
 
 const (
-	TypeAvro Type = iota + 1
+	TypeAvro Type = iota + 1 // avro
 )
 
-type Instance struct {
-	ID      string
-	Name    string
-	Version int32
+type Schema struct {
+	Subject string
+	Version int
 	Type    Type
 	Bytes   []byte
 }
