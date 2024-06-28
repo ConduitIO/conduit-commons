@@ -22,7 +22,7 @@ const (
 	TypeAvro Type = iota + 1 // avro
 )
 
-type Instance struct {
+type Schema struct {
 	Subject string
 	Version int
 	Type    Type
