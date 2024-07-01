@@ -14,7 +14,9 @@
 
 package schema
 
-import schemav1 "github.com/conduitio/conduit-commons/proto/schema/v1"
+import (
+	schemav1 "github.com/conduitio/conduit-commons/proto/schema/v1"
+)
 
 func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
@@ -49,7 +51,7 @@ func (s *Schema) FromProto(proto *schemav1.Schema) error {
 // populated.
 func (s *Schema) ToProto(proto *schemav1.Schema) error {
 	if proto == nil {
-		return nil
+		return errInvalidProtoIsNil
 	}
 
 	proto.Subject = s.Subject

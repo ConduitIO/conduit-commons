@@ -47,22 +47,49 @@ func TestSchema_FromProto(t *testing.T) {
 func TestSchema_ToProto(t *testing.T) {
 	is := is.New(t)
 
-	s1 := Schema{
-		Subject: "subject",
-		Version: 1,
-		Type:    TypeAvro,
-		Bytes:   []byte("bytes"),
+	testCases := []struct {
+		name    string
+		in      *schemav1.Schema
+		want    *schemav1.Schema
+		wantErr error
+	}{
+		{
+			name:    "when proto object is nil",
+			in:      nil,
+			want:    nil,
+			wantErr: errInvalidProtoIsNil,
+		},
+		{
+			name: "when proto object is not nil",
+			in:   &schemav1.Schema{},
+			want: &schemav1.Schema{
+				Subject: "subject",
+				Version: 1,
+				Type:    schemav1.Schema_TYPE_AVRO,
+				Bytes:   []byte("bytes"),
+			},
+		},
 	}
 
-	want := &schemav1.Schema{
-		Subject: s1.Subject,
-		Version: 1,
-		Type:    schemav1.Schema_TYPE_AVRO,
-		Bytes:   s1.Bytes,
-	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			is := is.New(t)
 
-	var got schemav1.Schema
-	err := s1.ToProto(&got)
-	is.NoErr(err)
-	is.Equal(&got, want)
+			s1 := Schema{
+				Subject: "subject",
+				Version: 1,
+				Type:    TypeAvro,
+				Bytes:   []byte("bytes"),
+			}
+
+			err := s1.ToProto(tc.in)
+
+			if tc.wantErr == nil {
+				is.NoErr(err)
+				is.Equal(tc.in, tc.want)
+			} else {
+				is.Equal(err.Error(), tc.wantErr.Error())
+			}
+		})
+	}
 }
