@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-option go_package = "github.com/conduitio/conduit-commons/proto/schema/v1";
-
 package schema.v1;
+
+option go_package = "github.com/conduitio/conduit-commons/proto/schema/v1";
 
 // Schema is a representation of a schema in the schema registry.
 message Schema {
