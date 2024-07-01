@@ -47,7 +47,6 @@ func (s *Schema) FromProto(proto *schemav1.Schema) error {
 // ToProto takes data from the receiver and populates the supplied proto object.
 // If the function returns an error, the proto object could be partially
 // populated.
-
 func (s *Schema) ToProto(proto *schemav1.Schema) error {
 	if proto == nil {
 		return nil
