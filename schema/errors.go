@@ -16,5 +16,5 @@ package schema
 
 import "errors"
 
-// errInvalidProtoIsNil is returned when trying to convert a proto schema to a schema object and the proto is nil.
+// errInvalidProtoIsNil is returned when trying to convert a schema object to a proto schema, and the proto is nil.
 var errInvalidProtoIsNil = errors.New("invalid proto: nil")
