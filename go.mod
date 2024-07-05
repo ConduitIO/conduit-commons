@@ -1,6 +1,6 @@
 module github.com/conduitio/conduit-commons
 
-go 1.21.1
+go 1.22.4
 
 require (
 	github.com/bufbuild/buf v1.34.0
