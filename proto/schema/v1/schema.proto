@@ -11,9 +11,17 @@ message Schema {
     TYPE_AVRO = 1;
   }
 
+  // The subject of the schema. Together with the version, this uniquely
+  // identifies the schema.
   string subject = 1;
+  // The version of the schema. Together with the subject, this uniquely
+  // identifies the schema.
   int32 version = 2;
-  Type type = 3;
-  // The schema contents
-  bytes bytes = 4;
+
+  // Uniquely identifies the schema contents (not the schema itself!).
+  int32 id = 3;
+  // The schema type.
+  Type type = 4;
+  // The schema contents.
+  bytes bytes = 5;
 }
