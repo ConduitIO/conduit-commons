@@ -41,7 +41,7 @@ type Schema struct {
 
 // Marshal returns the encoded representation of v.
 func (s Schema) Marshal(v any) ([]byte, error) {
-	srd, err := s.serde()
+	srd, err := s.Serde()
 	if err != nil {
 		return nil, err
 	}
@@ -51,19 +51,21 @@ func (s Schema) Marshal(v any) ([]byte, error) {
 // Unmarshal parses encoded data and stores the result in the value pointed
 // to by v. If v is nil or not a pointer, Unmarshal returns an error.
 func (s Schema) Unmarshal(b []byte, v any) error {
-	srd, err := s.serde()
+	srd, err := s.Serde()
 	if err != nil {
 		return err
 	}
 	return srd.Unmarshal(b, v)
 }
 
+// Fingerprint returns a unique 64 bit identifier for the schema.
 func (s Schema) Fingerprint() uint64 {
 	return rabin.Bytes(s.Bytes)
 }
 
-func (s Schema) serde() (serde, error) {
-	srd, err, _ := globalSerdeCache.Get(s.Fingerprint(), func() (serde, error) {
+// Serde returns the serde for the schema.
+func (s Schema) Serde() (Serde, error) {
+	srd, err, _ := globalSerdeCache.Get(s.Fingerprint(), func() (Serde, error) {
 		factory, ok := KnownSerdeFactories[s.Type]
 		if !ok {
 			return nil, fmt.Errorf("unsupported schema type: %s", s.Type)
@@ -85,30 +87,33 @@ func (s Schema) serde() (serde, error) {
 // times. Since the cache is global, it is important to ensure that the cache is
 // cleaned up periodically to avoid memory leaks (e.g. if a pipeline is stopped
 // and the schemas it processed are no longer needed).
-var globalSerdeCache = cache.New[uint64, serde](
+var globalSerdeCache = cache.New[uint64, Serde](
 	cache.AutoCleanInterval(time.Hour), // clean up every hour
 	cache.MaxAge(4*time.Hour),          // expire entries after 4 hours
 )
 
-// serde represents a serializer/deserializer.
-type serde interface {
+// Serde represents a serializer/deserializer.
+type Serde interface {
+	// Marshal returns the encoded representation of v.
 	Marshal(v any) ([]byte, error)
+	// Unmarshal parses encoded data and stores the result in the value pointed
+	// to by v. If v is nil or not a pointer, Unmarshal returns an error.
 	Unmarshal(b []byte, v any) error
 	// String returns the textual representation of the schema used by this serde.
 	String() string
 }
 
-type serdeFactory struct {
+type SerdeFactory struct {
 	// Parse takes the textual representation of the schema and parses it into
 	// a Schema.
-	Parse func(string) (serde, error)
+	Parse func(string) (Serde, error)
 	// SerdeForType returns a Schema that matches the structure of v.
-	SerdeForType func(v any) (serde, error)
+	SerdeForType func(v any) (Serde, error)
 }
 
-var KnownSerdeFactories = map[Type]serdeFactory{
+var KnownSerdeFactories = map[Type]SerdeFactory{
 	TypeAvro: {
-		Parse:        func(s string) (serde, error) { return avro.Parse(s) },
-		SerdeForType: func(v any) (serde, error) { return avro.SchemaForType(v) },
+		Parse:        func(s string) (Serde, error) { return avro.Parse(s) },
+		SerdeForType: func(v any) (Serde, error) { return avro.SerdeForType(v) },
 	},
 }

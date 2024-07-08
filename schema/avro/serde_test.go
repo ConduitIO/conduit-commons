@@ -25,7 +25,7 @@ import (
 	"github.com/matryer/is"
 )
 
-func TestSchema_MarshalUnmarshal(t *testing.T) {
+func TestSerde_MarshalUnmarshal(t *testing.T) {
 	now := time.Now().UTC()
 
 	testCases := []struct {
@@ -532,26 +532,26 @@ func TestSchema_MarshalUnmarshal(t *testing.T) {
 			// create new record with haveValue in field "foo"
 			haveValue := newRecord(tc.haveValue)
 
-			// extract schema and ensure it matches the expectation
-			gotSchema, err := SchemaForType(haveValue)
+			// extract serde and ensure it matches the expectation
+			gotSerde, err := SerdeForType(haveValue)
 			is.NoErr(err)
 
-			wantSchema := &Schema{
+			wantSerde := &Serde{
 				schema: must(avro.NewRecordSchema("record", "",
 					[]*avro.Field{must(avro.NewField("foo", tc.wantSchema))},
 				)),
 			}
-			wantSchema.Sort()
-			gotSchema.Sort()
-			is.Equal(wantSchema.String(), gotSchema.String())
+			wantSerde.Sort()
+			gotSerde.Sort()
+			is.Equal(wantSerde.String(), gotSerde.String())
 
 			// now try to marshal the value with the schema
-			bytes, err := gotSchema.Marshal(haveValue)
+			bytes, err := gotSerde.Marshal(haveValue)
 			is.NoErr(err)
 
 			// unmarshal the bytes back into structured data and compare the value
 			var gotValue opencdc.StructuredData
-			err = gotSchema.Unmarshal(bytes, &gotValue)
+			err = gotSerde.Unmarshal(bytes, &gotValue)
 			is.NoErr(err)
 
 			wantValue := newRecord(tc.wantValue)
@@ -560,7 +560,7 @@ func TestSchema_MarshalUnmarshal(t *testing.T) {
 	}
 }
 
-func TestSchemaForType_NestedStructuredData(t *testing.T) {
+func TestSerdeForType_NestedStructuredData(t *testing.T) {
 	is := is.New(t)
 
 	have := opencdc.StructuredData{
@@ -577,7 +577,7 @@ func TestSchemaForType_NestedStructuredData(t *testing.T) {
 		},
 	}
 
-	want := &Schema{schema: must(avro.NewRecordSchema(
+	want := &Serde{schema: must(avro.NewRecordSchema(
 		"record", "",
 		[]*avro.Field{
 			must(avro.NewField("foo", avro.NewPrimitiveSchema(avro.String, nil))),
@@ -612,7 +612,7 @@ func TestSchemaForType_NestedStructuredData(t *testing.T) {
 	))}
 	want.Sort()
 
-	got, err := SchemaForType(have)
+	got, err := SerdeForType(have)
 	is.NoErr(err)
 	is.Equal(want.String(), got.String())
 
@@ -625,7 +625,7 @@ func TestSchemaForType_NestedStructuredData(t *testing.T) {
 	is.NoErr(err)
 }
 
-func TestSchemaForType_UnsupportedTypes(t *testing.T) {
+func TestSerdeForType_UnsupportedTypes(t *testing.T) {
 	testCases := []struct {
 		val     any
 		wantErr error
@@ -643,7 +643,7 @@ func TestSchemaForType_UnsupportedTypes(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("%T", tc.val), func(t *testing.T) {
 			is := is.New(t)
-			_, err := SchemaForType(tc.val)
+			_, err := SerdeForType(tc.val)
 			is.True(err != nil)
 			is.Equal(err.Error(), tc.wantErr.Error())
 		})

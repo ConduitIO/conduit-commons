@@ -20,18 +20,18 @@ import (
 	"github.com/hamba/avro/v2"
 )
 
-// Schema represents an Avro schema. It exposes methods for marshaling and
+// Serde represents an Avro schema. It exposes methods for marshaling and
 // unmarshalling data.
-type Schema struct {
+type Serde struct {
 	schema        avro.Schema
 	unionResolver unionResolver
 }
 
 // Marshal returns the Avro encoding of v. Note that this function may mutate v.
 // Limitations:
-// - Map keys need to be of type string
-// - Array values need to be of type uint8 (byte)
-func (s *Schema) Marshal(v any) ([]byte, error) {
+// - Map keys need to be of type string,
+// - Array values need to be of type uint8 (byte).
+func (s *Serde) Marshal(v any) ([]byte, error) {
 	err := s.unionResolver.BeforeMarshal(v)
 	if err != nil {
 		return nil, err
@@ -48,7 +48,7 @@ func (s *Schema) Marshal(v any) ([]byte, error) {
 // Note that arrays and maps are unmarshalled into slices and maps with untyped
 // values (i.e. []any and map[string]any). This is a limitation of the Avro
 // library used for encoding/decoding the payload.
-func (s *Schema) Unmarshal(b []byte, v any) error {
+func (s *Serde) Unmarshal(b []byte, v any) error {
 	err := avro.Unmarshal(s.schema, b, v)
 	if err != nil {
 		return err
@@ -61,37 +61,37 @@ func (s *Schema) Unmarshal(b []byte, v any) error {
 }
 
 // String returns the canonical form of the schema.
-func (s *Schema) String() string {
+func (s *Serde) String() string {
 	return s.schema.String()
 }
 
 // Sort fields in the schema. It can be used in tests to ensure the schemas can
 // be compared.
-func (s *Schema) Sort() {
+func (s *Serde) Sort() {
 	traverseSchema(s.schema, sortFn)
 }
 
 // Parse parses a schema string.
-func Parse(text string) (*Schema, error) {
+func Parse(text string) (*Serde, error) {
 	schema, err := avro.Parse(text)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse avro schema: %w", err)
 	}
-	return &Schema{
+	return &Serde{
 		schema:        schema,
 		unionResolver: newUnionResolver(schema),
 	}, nil
 }
 
-// SchemaForType uses reflection to extract an Avro schema from v. Maps are
+// SerdeForType uses reflection to extract an Avro schema from v. Maps are
 // regarded as structs.
-func SchemaForType(v any) (*Schema, error) {
+func SerdeForType(v any) (*Serde, error) {
 	schema, err := extractor{}.Extract(v)
 	if err != nil {
 		return nil, err
 	}
 	traverseSchema(schema, sortFn)
-	return &Schema{
+	return &Serde{
 		schema:        schema,
 		unionResolver: newUnionResolver(schema),
 	}, nil

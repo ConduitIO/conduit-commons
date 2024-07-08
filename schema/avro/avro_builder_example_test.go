@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package schema
+package avro
 
 import (
 	"fmt"
@@ -21,12 +21,12 @@ import (
 	"github.com/hamba/avro/v2"
 )
 
-func ExampleAvroBuilder() {
+func ExampleBuilder() {
 	enumSchema, err := avro.NewEnumSchema("enum_schema", "enum_namespace", []string{"val1", "val2", "val3"})
 	if err != nil {
 		panic(err)
 	}
-	bytes, err := NewAvroBuilder("schema_name", "schema_namespace").
+	bytes, err := NewBuilder("schema_name", "schema_namespace").
 		AddField("int_field", avro.NewPrimitiveSchema(avro.Int, nil), avro.WithDefault(100)).
 		AddField("enum_field", enumSchema).
 		MarshalJSON()
