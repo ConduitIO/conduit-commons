@@ -131,10 +131,10 @@ func (r unionResolver) afterUnmarshalMapSubstitutions(val any, substitutions []s
 				}
 				vmap, ok := v.(map[string]any)
 				if !ok {
-					return nil, fmt.Errorf("expected map[string]any, got %T", v)
+					return nil, fmt.Errorf("expected map[string]any, got %T: %w", v, ErrSchemaValueMismatch)
 				}
 				if len(vmap) != 1 {
-					return nil, fmt.Errorf("expected single value encoded as a map, got %d elements", len(vmap))
+					return nil, fmt.Errorf("expected single value encoded as a map, got %d elements: %w", len(vmap), ErrSchemaValueMismatch)
 				}
 
 				// this is a map with a single value, store the substitution
@@ -179,10 +179,10 @@ func (r unionResolver) afterUnmarshalArraySubstitutions(val any, substitutions [
 				}
 				vmap, ok := v.(map[string]any)
 				if !ok {
-					return nil, fmt.Errorf("expected map[string]any, got %T", v)
+					return nil, fmt.Errorf("expected map[string]any, got %T: %w", v, ErrSchemaValueMismatch)
 				}
 				if len(vmap) != 1 {
-					return nil, fmt.Errorf("expected single value encoded as a map, got %d elements", len(vmap))
+					return nil, fmt.Errorf("expected single value encoded as a map, got %d elements: %w", len(vmap), ErrSchemaValueMismatch)
 				}
 
 				// this is a map with a single value, store the substitution
@@ -236,7 +236,7 @@ func (r unionResolver) afterUnmarshalNullUnionSubstitutions(val any, substitutio
 					continue
 				}
 				if len(vmap) != 1 {
-					return nil, fmt.Errorf("expected single value encoded as a map, got %d elements", len(vmap))
+					return nil, fmt.Errorf("expected single value encoded as a map, got %d elements: %w", len(vmap), ErrSchemaValueMismatch)
 				}
 
 				// this is a map with a single value, store the substitution
@@ -283,11 +283,11 @@ func (r unionResolver) beforeMarshalMapSubstitutions(val any, substitutions []su
 	for _, p := range r.mapUnionPaths {
 		mapSchema, ok := p[len(p)-1].schema.(*avro.MapSchema)
 		if !ok {
-			return nil, fmt.Errorf("expected *avro.MapSchema, got %T", p[len(p)-1].schema)
+			return nil, fmt.Errorf("expected *avro.MapSchema, got %T: %w", p[len(p)-1].schema, ErrSchemaValueMismatch)
 		}
 		unionSchema, ok := mapSchema.Values().(*avro.UnionSchema)
 		if !ok {
-			return nil, fmt.Errorf("expected *avro.UnionSchema, got %T", mapSchema.Values())
+			return nil, fmt.Errorf("expected *avro.UnionSchema, got %T: %w", mapSchema.Values(), ErrSchemaValueMismatch)
 		}
 
 		// first collect all maps that have a union type in the schema
@@ -331,11 +331,11 @@ func (r unionResolver) beforeMarshalArraySubstitutions(val any, substitutions []
 	for _, p := range r.arrayUnionPaths {
 		arraySchema, ok := p[len(p)-1].schema.(*avro.ArraySchema)
 		if !ok {
-			return nil, fmt.Errorf("expected *avro.ArraySchema, got %T", p[len(p)-1].schema)
+			return nil, fmt.Errorf("expected *avro.ArraySchema, got %T: %w", p[len(p)-1].schema, ErrSchemaValueMismatch)
 		}
 		unionSchema, ok := arraySchema.Items().(*avro.UnionSchema)
 		if !ok {
-			return nil, fmt.Errorf("expected *avro.UnionSchema, got %T", arraySchema.Items())
+			return nil, fmt.Errorf("expected *avro.UnionSchema, got %T: %w", arraySchema.Items(), ErrSchemaValueMismatch)
 		}
 
 		// first collect all array that have a union type in the schema
@@ -379,7 +379,7 @@ func (r unionResolver) resolveNameForType(v any, us *avro.UnionSchema) (string, 
 	var names []string
 
 	t := reflect2.TypeOf(v)
-	switch t.Kind() {
+	switch t.Kind() { //nolint:exhaustive // some types are not supported
 	case reflect.Map:
 		names = []string{"map"}
 	case reflect.Slice:
@@ -392,7 +392,7 @@ func (r unionResolver) resolveNameForType(v any, us *avro.UnionSchema) (string, 
 		var err error
 		names, err = r.resolver.Name(t)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("could not resolve type name for %T: %w", v, err)
 		}
 	}
 
@@ -402,7 +402,7 @@ func (r unionResolver) resolveNameForType(v any, us *avro.UnionSchema) (string, 
 			return n, nil
 		}
 	}
-	return "", fmt.Errorf("can't resolve %v in union type %v", names, us.String())
+	return "", fmt.Errorf("can't resolve %v in union type %v: %w", names, us.String(), ErrSchemaValueMismatch)
 }
 
 func isMapUnion(schema avro.Schema) bool {

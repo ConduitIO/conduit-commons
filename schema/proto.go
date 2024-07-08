@@ -52,7 +52,7 @@ func (s *Schema) FromProto(proto *schemav1.Schema) error {
 // populated.
 func (s *Schema) ToProto(proto *schemav1.Schema) error {
 	if proto == nil {
-		return errInvalidProtoIsNil
+		return ErrInvalidProtoIsNil
 	}
 
 	proto.Subject = s.Subject

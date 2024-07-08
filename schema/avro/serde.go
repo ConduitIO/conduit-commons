@@ -38,7 +38,7 @@ func (s *Serde) Marshal(v any) ([]byte, error) {
 	}
 	bytes, err := avro.Marshal(s.schema, v)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not marshal into avro: %w", err)
 	}
 	return bytes, nil
 }
@@ -51,7 +51,7 @@ func (s *Serde) Marshal(v any) ([]byte, error) {
 func (s *Serde) Unmarshal(b []byte, v any) error {
 	err := avro.Unmarshal(s.schema, b, v)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not unmarshal from avro: %w", err)
 	}
 	err = s.unionResolver.AfterUnmarshal(v)
 	if err != nil {

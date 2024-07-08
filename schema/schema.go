@@ -45,7 +45,11 @@ func (s Schema) Marshal(v any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return srd.Marshal(v)
+	out, err := srd.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal data with schema %v:%v (id: %v): %w", s.Subject, s.Version, s.ID, err)
+	}
+	return out, nil
 }
 
 // Unmarshal parses encoded data and stores the result in the value pointed
@@ -55,7 +59,11 @@ func (s Schema) Unmarshal(b []byte, v any) error {
 	if err != nil {
 		return err
 	}
-	return srd.Unmarshal(b, v)
+	err = srd.Unmarshal(b, v)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal data with schema %v:%v (id: %v): %w", s.Subject, s.Version, s.ID, err)
+	}
+	return nil
 }
 
 // Fingerprint returns a unique 64 bit identifier for the schema.
@@ -68,7 +76,7 @@ func (s Schema) Serde() (Serde, error) {
 	srd, err, _ := globalSerdeCache.Get(s.Fingerprint(), func() (Serde, error) {
 		factory, ok := KnownSerdeFactories[s.Type]
 		if !ok {
-			return nil, fmt.Errorf("unsupported schema type: %s", s.Type)
+			return nil, fmt.Errorf("failed to get serde for schema type %s: %w", s.Type, ErrUnsupportedType)
 		}
 		srd, err := factory.Parse(string(s.Bytes))
 		if err != nil {
@@ -77,7 +85,7 @@ func (s Schema) Serde() (Serde, error) {
 		return srd, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, err //nolint:wrapcheck // errors are already wrapped in the miss function
 	}
 	return srd, nil
 }

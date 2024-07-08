@@ -631,14 +631,14 @@ func TestSerdeForType_UnsupportedTypes(t *testing.T) {
 		wantErr error
 	}{
 		// avro only supports fixed byte arrays
-		{val: [4]int{}, wantErr: errors.New("record: arrays with value type int not supported, avro only supports bytes as values")},
-		{val: [4]bool{}, wantErr: errors.New("record: arrays with value type bool not supported, avro only supports bytes as values")},
+		{val: [4]int{}, wantErr: errors.New("record: arrays with value type int not supported, avro only supports bytes as values: unsupported avro type")},
+		{val: [4]bool{}, wantErr: errors.New("record: arrays with value type bool not supported, avro only supports bytes as values: unsupported avro type")},
 		// avro only supports maps with string keys
-		{val: map[int]string{}, wantErr: errors.New("record: maps with key type int not supported, avro only supports strings as keys")},
-		{val: map[bool]string{}, wantErr: errors.New("record: maps with key type bool not supported, avro only supports strings as keys")},
+		{val: map[int]string{}, wantErr: errors.New("record: maps with key type int not supported, avro only supports strings as keys: unsupported avro type")},
+		{val: map[bool]string{}, wantErr: errors.New("record: maps with key type bool not supported, avro only supports strings as keys: unsupported avro type")},
 		// avro only supports signed integers
-		{val: uint64(1), wantErr: errors.New("record: unsupported type: uint64")},
-		{val: uint(1), wantErr: errors.New("record: unsupported type: uint")},
+		{val: uint64(1), wantErr: errors.New("record: can't get schema for type uint64: unsupported avro type")},
+		{val: uint(1), wantErr: errors.New("record: can't get schema for type uint: unsupported avro type")},
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("%T", tc.val), func(t *testing.T) {

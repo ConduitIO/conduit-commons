@@ -61,9 +61,9 @@ func (e extractor) Extract(v any) (avro.Schema, error) {
 
 func (e extractor) extract(path []string, v reflect.Value, t reflect.Type) (avro.Schema, error) {
 	if t == nil {
-		return nil, fmt.Errorf("%s: can't get schema for untyped nil", strings.Join(path, ".")) // untyped nil
+		return nil, fmt.Errorf("%s: can't get schema for untyped nil: %w", strings.Join(path, "."), ErrUnsupportedType)
 	}
-	switch t.Kind() {
+	switch t.Kind() { //nolint:exhaustive // some types are not supported
 	case reflect.Bool:
 		return avro.NewPrimitiveSchema(avro.Boolean, nil), nil
 	case reflect.Int64, reflect.Uint32:
@@ -82,9 +82,13 @@ func (e extractor) extract(path []string, v reflect.Value, t reflect.Type) (avro
 		return e.extractInterface(path, v, t)
 	case reflect.Array:
 		if t.Elem() != byteType {
-			return nil, fmt.Errorf("%s: arrays with value type %v not supported, avro only supports bytes as values", strings.Join(path, "."), t.Elem().String())
+			return nil, fmt.Errorf("%s: arrays with value type %v not supported, avro only supports bytes as values: %w", strings.Join(path, "."), t.Elem().String(), ErrUnsupportedType)
 		}
-		return avro.NewFixedSchema(strings.Join(path, "."), "", t.Len(), nil)
+		s, err := avro.NewFixedSchema(strings.Join(path, "."), "", t.Len(), nil)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
+		}
+		return s, nil
 	case reflect.Slice:
 		return e.extractSlice(path, v, t)
 	case reflect.Map:
@@ -97,9 +101,10 @@ func (e extractor) extract(path []string, v reflect.Value, t reflect.Type) (avro
 			), nil
 		}
 		return e.extractStruct(path, v, t)
+	default:
+		// Invalid, Uintptr, UnsafePointer, Uint64, Uint, Complex64, Complex128, Chan, Func
+		return nil, fmt.Errorf("%s: can't get schema for type %v: %w", strings.Join(path, "."), t, ErrUnsupportedType)
 	}
-	// Invalid, Uintptr, UnsafePointer, Uint64, Uint, Complex64, Complex128, Chan, Func
-	return nil, fmt.Errorf("%s: unsupported type: %v", strings.Join(path, "."), t)
 }
 
 // extractPointer extracts the schema behind the pointer and makes it nullable
@@ -128,7 +133,7 @@ func (e extractor) extractPointer(path []string, v reflect.Value, t reflect.Type
 
 	s, err = avro.NewUnionSchema(append(schemas, &avro.NullSchema{}))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
 	}
 
 	return s, nil
@@ -142,10 +147,14 @@ func (e extractor) extractPointer(path []string, v reflect.Value, t reflect.Type
 func (e extractor) extractInterface(path []string, v reflect.Value, _ reflect.Type) (avro.Schema, error) {
 	if !v.IsValid() || v.IsNil() {
 		// unknown type, fall back to nullable string
-		return avro.NewUnionSchema([]avro.Schema{
+		s, err := avro.NewUnionSchema([]avro.Schema{
 			avro.NewPrimitiveSchema(avro.String, nil),
 			&avro.NullSchema{},
 		})
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
+		}
+		return s, nil
 	}
 	return e.extract(path, v.Elem(), v.Elem().Type())
 }
@@ -217,18 +226,18 @@ func (e extractor) extractMap(path []string, v reflect.Value, t reflect.Type) (a
 			}
 			field, err := avro.NewField(keyValue.String(), fs)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
 			}
 			fields = append(fields, field)
 		}
 		rs, err := avro.NewRecordSchema(strings.Join(path, "."), "", fields)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
 		}
 		return rs, nil
 	}
 	if t.Key().Kind() != reflect.String {
-		return nil, fmt.Errorf("%s: maps with key type %v not supported, avro only supports strings as keys", strings.Join(path, "."), t.Key().Kind())
+		return nil, fmt.Errorf("%s: maps with key type %v not supported, avro only supports strings as keys: %w", strings.Join(path, "."), t.Key().Kind(), ErrUnsupportedType)
 	}
 	// try getting value type based on the map type
 	if t.Elem().Kind() != reflect.Interface {
@@ -291,17 +300,18 @@ func (e extractor) extractStruct(path []string, v reflect.Value, t reflect.Type)
 
 		field, err := avro.NewField(name, fs)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
 		}
 		fields = append(fields, field)
 	}
 	rs, err := avro.NewRecordSchema(strings.Join(path, "."), "", fields)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
 	}
 	return rs, nil
 }
 
+//nolint:gocognit,funlen // this function is complex by nature
 func (e extractor) deduplicate(schemas []avro.Schema) ([]avro.Schema, error) {
 	out := make([]avro.Schema, 0, len(schemas))
 	typesSet := make(map[[32]byte]struct{})
@@ -320,45 +330,52 @@ func (e extractor) deduplicate(schemas []avro.Schema) ([]avro.Schema, error) {
 			return nil
 		}
 		for _, s := range out {
-			if s.Type() == schema.Type() {
-				switch s := s.(type) {
-				case *avro.ArraySchema:
-					// we are combining two array schemas with different item
-					// schemas, combine them and create a new array schema
-					schema := schema.(*avro.ArraySchema)
-					itemsSchema, err := e.deduplicate([]avro.Schema{s.Items(), schema.Items()})
-					if err != nil {
-						return err
-					}
-					if len(itemsSchema) == 1 {
-						*s = *avro.NewArraySchema(itemsSchema[0])
-					} else {
-						itemsUnionSchema, err := avro.NewUnionSchema(itemsSchema)
-						if err != nil {
-							return err
-						}
-						*s = *avro.NewArraySchema(itemsUnionSchema)
-					}
-				case *avro.MapSchema:
-					schema := schema.(*avro.MapSchema)
-					valuesSchema, err := e.deduplicate([]avro.Schema{s.Values(), schema.Values()})
-					if err != nil {
-						return err
-					}
-					if len(valuesSchema) == 1 {
-						*s = *avro.NewMapSchema(valuesSchema[0])
-					} else {
-						valuesUnionSchema, err := avro.NewUnionSchema(valuesSchema)
-						if err != nil {
-							return err
-						}
-						*s = *avro.NewMapSchema(valuesUnionSchema)
-					}
-				default:
-					return fmt.Errorf("can't combine schemas of type %T", s)
-				}
-				return nil
+			if s.Type() != schema.Type() {
+				continue
 			}
+			switch s := s.(type) {
+			case *avro.ArraySchema:
+				// we are combining two array schemas with different item
+				// schemas, combine them and create a new array schema
+				schema, ok := schema.(*avro.ArraySchema)
+				if !ok {
+					return fmt.Errorf("can't combine schemas of type %T and %T: %w", s, schema, ErrSchemaValueMismatch)
+				}
+				itemsSchema, err := e.deduplicate([]avro.Schema{s.Items(), schema.Items()})
+				if err != nil {
+					return err
+				}
+				if len(itemsSchema) == 1 {
+					*s = *avro.NewArraySchema(itemsSchema[0])
+				} else {
+					itemsUnionSchema, err := avro.NewUnionSchema(itemsSchema)
+					if err != nil {
+						return fmt.Errorf("failed to create union schema: %w", err)
+					}
+					*s = *avro.NewArraySchema(itemsUnionSchema)
+				}
+			case *avro.MapSchema:
+				schema, ok := schema.(*avro.MapSchema)
+				if !ok {
+					return fmt.Errorf("can't combine schemas of type %T and %T: %w", s, schema, ErrSchemaValueMismatch)
+				}
+				valuesSchema, err := e.deduplicate([]avro.Schema{s.Values(), schema.Values()})
+				if err != nil {
+					return err
+				}
+				if len(valuesSchema) == 1 {
+					*s = *avro.NewMapSchema(valuesSchema[0])
+				} else {
+					valuesUnionSchema, err := avro.NewUnionSchema(valuesSchema)
+					if err != nil {
+						return fmt.Errorf("failed to create union schema: %w", err)
+					}
+					*s = *avro.NewMapSchema(valuesUnionSchema)
+				}
+			default:
+				return fmt.Errorf("can't combine schemas of type %T: %w", s, ErrUnsupportedType)
+			}
+			return nil
 		}
 
 		// schema does not exist yet

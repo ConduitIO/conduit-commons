@@ -92,7 +92,7 @@ func sortFn(p path) {
 // If the value structure does not match the path p, traverseValue returns an
 // error.
 //
-//nolint:gocyclo // need to switch on avro type and have a case for each type
+//nolint:gocognit,funlen // need to switch on avro type and have a case for each type
 func traverseValue(val any, p path, hasEncodedUnions bool, fn func(v any)) error {
 	var traverse func(any, int) error
 	traverse = func(val any, index int) error {
@@ -104,7 +104,7 @@ func traverseValue(val any, p path, hasEncodedUnions bool, fn func(v any)) error
 		if val == nil {
 			return nil // can't traverse further, not an error though
 		}
-		switch l := p[index]; l.schema.Type() {
+		switch l := p[index]; l.schema.Type() { //nolint:exhaustive // some types are not supported
 		case avro.Record:
 			switch val := val.(type) {
 			case map[string]any:
@@ -127,6 +127,7 @@ func traverseValue(val any, p path, hasEncodedUnions bool, fn func(v any)) error
 					return err
 				}
 			}
+			return nil
 		case avro.Map:
 			valMap, ok := val.(map[string]any)
 			if !ok {
@@ -137,6 +138,7 @@ func traverseValue(val any, p path, hasEncodedUnions bool, fn func(v any)) error
 					return err
 				}
 			}
+			return nil
 		case avro.Ref:
 			// ignore ref and go deeper
 			return traverse(val, index+1)
@@ -149,7 +151,7 @@ func traverseValue(val any, p path, hasEncodedUnions bool, fn func(v any)) error
 					return newUnexpectedTypeError(avro.Union, map[string]any{}, val)
 				}
 				if len(valMap) != 1 {
-					return fmt.Errorf("expected single value encoded as a map, got %d elements", len(valMap))
+					return fmt.Errorf("expected single value encoded as a map, got %d elements: %w", len(valMap), ErrSchemaValueMismatch)
 				}
 				for _, v := range valMap {
 					return traverse(v, index+1) // there's only one value, return
@@ -167,9 +169,8 @@ func traverseValue(val any, p path, hasEncodedUnions bool, fn func(v any)) error
 			}
 			return err
 		default:
-			return fmt.Errorf("unexpected avro type %s, can not traverse deeper", l.schema.Type())
+			return fmt.Errorf("can not traverse deeper in avro type %s: %w", l.schema.Type(), ErrUnsupportedType)
 		}
-		return nil
 	}
 	return traverse(val, 0)
 }
