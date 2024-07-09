@@ -77,6 +77,11 @@ func Parse(text []byte) (*Serde, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not parse avro schema: %w", err)
 	}
+	// Note: We do not sort fields here because field order is significant in
+	// Avro schemas. Sorting would alter the schema and change the output. In
+	// SerdeForType, sorting ensures consistency when creating a schema from a
+	// value. However, when using Parse, we must preserve the original field
+	// order to match the schema definition.
 	return &Serde{
 		schema:        schema,
 		unionResolver: newUnionResolver(schema),
@@ -94,6 +99,7 @@ func SerdeForType(v any) (*Serde, error) {
 		schema:        schema,
 		unionResolver: newUnionResolver(schema),
 	}
+	// Sort fields to ensure consistent schema representation.
 	s.sort()
 	return s, nil
 }
