@@ -541,8 +541,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 					[]*avro.Field{must(avro.NewField("foo", tc.wantSchema))},
 				)),
 			}
-			wantSerde.Sort()
-			gotSerde.Sort()
+			wantSerde.sort()
 			is.Equal(wantSerde.String(), gotSerde.String())
 
 			// now try to marshal the value with the schema
@@ -610,7 +609,7 @@ func TestSerdeForType_NestedStructuredData(t *testing.T) {
 			)),
 		},
 	))}
-	want.Sort()
+	want.sort()
 
 	got, err := SerdeForType(have)
 	is.NoErr(err)

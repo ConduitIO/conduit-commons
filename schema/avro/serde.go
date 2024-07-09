@@ -65,9 +65,9 @@ func (s *Serde) String() string {
 	return s.schema.String()
 }
 
-// Sort fields in the schema. It can be used in tests to ensure the schemas can
+// sort fields in the schema. It can be used in tests to ensure the schemas can
 // be compared.
-func (s *Serde) Sort() {
+func (s *Serde) sort() {
 	traverseSchema(s.schema, sortFn)
 }
 
@@ -90,9 +90,10 @@ func SerdeForType(v any) (*Serde, error) {
 	if err != nil {
 		return nil, err
 	}
-	traverseSchema(schema, sortFn)
-	return &Serde{
+	s := &Serde{
 		schema:        schema,
 		unionResolver: newUnionResolver(schema),
-	}, nil
+	}
+	s.sort()
+	return s, nil
 }
