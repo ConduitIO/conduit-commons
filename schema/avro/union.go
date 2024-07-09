@@ -72,11 +72,12 @@ func newUnionResolver(schema avro.Schema) unionResolver {
 	}
 }
 
-// AfterUnmarshal traverses the value using the schema and finds all values that
-// have the Avro type Union. Those values are unmarshaled into a map with a
-// single key that contains the name of the type
-// (e.g. map[string]any{"string":"foo"}). This function takes that map and
-// extracts the actual value from it (e.g. "foo").
+// AfterUnmarshal traverses the input value 'val' using the schema and finds all
+// fields that are of the Avro Union type. In the input 'val', these Union type
+// fields are represented as maps with a single key that contains the name of
+// the type (e.g. map[string]any{"string":"foo"}). This function processes those
+// maps and extracts the actual value from them (e.g. "foo"), replacing the map
+// representation with the actual value.
 func (r unionResolver) AfterUnmarshal(val any) error {
 	if len(r.mapUnionPaths) == 0 &&
 		len(r.arrayUnionPaths) == 0 &&
