@@ -71,9 +71,9 @@ func (s *Serde) sort() {
 	traverseSchema(s.schema, sortFn)
 }
 
-// Parse parses a schema string.
-func Parse(text string) (*Serde, error) {
-	schema, err := avro.Parse(text)
+// Parse parses a schema byte slice.
+func Parse(text []byte) (*Serde, error) {
+	schema, err := avro.ParseBytes(text)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse avro schema: %w", err)
 	}

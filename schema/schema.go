@@ -78,7 +78,7 @@ func (s Schema) Serde() (Serde, error) {
 		if !ok {
 			return nil, fmt.Errorf("failed to get serde for schema type %s: %w", s.Type, ErrUnsupportedType)
 		}
-		srd, err := factory.Parse(string(s.Bytes))
+		srd, err := factory.Parse(s.Bytes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse schema of type %s: %w", s.Type, err)
 		}
@@ -114,14 +114,14 @@ type Serde interface {
 type SerdeFactory struct {
 	// Parse takes the textual representation of the schema and parses it into
 	// a Schema.
-	Parse func(string) (Serde, error)
+	Parse func([]byte) (Serde, error)
 	// SerdeForType returns a Schema that matches the structure of v.
 	SerdeForType func(v any) (Serde, error)
 }
 
 var KnownSerdeFactories = map[Type]SerdeFactory{
 	TypeAvro: {
-		Parse:        func(s string) (Serde, error) { return avro.Parse(s) },
+		Parse:        func(s []byte) (Serde, error) { return avro.Parse(s) },
 		SerdeForType: func(v any) (Serde, error) { return avro.SerdeForType(v) },
 	},
 }
