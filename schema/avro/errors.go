@@ -12,15 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package schema
+package avro
 
 import "errors"
 
 var (
-	// ErrInvalidProtoIsNil is returned when trying to convert a schema object to a
-	// proto schema, and the proto is nil.
-	ErrInvalidProtoIsNil = errors.New("invalid proto: nil")
-
-	// ErrUnsupportedType is returned when an unsupported type is encountered.
-	ErrUnsupportedType = errors.New("unsupported type")
+	ErrUnsupportedType     = errors.New("unsupported avro type")
+	ErrSchemaValueMismatch = errors.New("avro schema doesn't match supplied value")
 )

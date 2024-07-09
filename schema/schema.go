@@ -16,6 +16,15 @@
 
 package schema
 
+import (
+	"fmt"
+	"time"
+
+	"github.com/conduitio/conduit-commons/rabin"
+	"github.com/conduitio/conduit-commons/schema/avro"
+	"github.com/twmb/go-cache/cache"
+)
+
 type Type int32
 
 const (
@@ -25,6 +34,94 @@ const (
 type Schema struct {
 	Subject string
 	Version int
+	ID      int
 	Type    Type
 	Bytes   []byte
+}
+
+// Marshal returns the encoded representation of v.
+func (s Schema) Marshal(v any) ([]byte, error) {
+	srd, err := s.Serde()
+	if err != nil {
+		return nil, err
+	}
+	out, err := srd.Marshal(v)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal data with schema %v:%v (id: %v): %w", s.Subject, s.Version, s.ID, err)
+	}
+	return out, nil
+}
+
+// Unmarshal parses encoded data and stores the result in the value pointed
+// to by v. If v is nil or not a pointer, Unmarshal returns an error.
+func (s Schema) Unmarshal(b []byte, v any) error {
+	srd, err := s.Serde()
+	if err != nil {
+		return err
+	}
+	err = srd.Unmarshal(b, v)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal data with schema %v:%v (id: %v): %w", s.Subject, s.Version, s.ID, err)
+	}
+	return nil
+}
+
+// Fingerprint returns a unique 64 bit identifier for the schema.
+func (s Schema) Fingerprint() uint64 {
+	return rabin.Bytes(s.Bytes)
+}
+
+// Serde returns the serde for the schema.
+func (s Schema) Serde() (Serde, error) {
+	srd, err, _ := globalSerdeCache.Get(s.Fingerprint(), func() (Serde, error) {
+		factory, ok := KnownSerdeFactories[s.Type]
+		if !ok {
+			return nil, fmt.Errorf("failed to get serde for schema type %s: %w", s.Type, ErrUnsupportedType)
+		}
+		srd, err := factory.Parse(s.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse schema of type %s: %w", s.Type, err)
+		}
+		return srd, nil
+	})
+	if err != nil {
+		return nil, err //nolint:wrapcheck // errors are already wrapped in the miss function
+	}
+	return srd, nil
+}
+
+// globalSerdeCache is a concurrency safe cache of serdes by schema fingerprint.
+// Every process uses a global cache to avoid re-parsing the same schema multiple
+// times. Since the cache is global, it is important to ensure that the cache is
+// cleaned up periodically to avoid memory leaks (e.g. if a pipeline is stopped
+// and the schemas it processed are no longer needed).
+var globalSerdeCache = cache.New[uint64, Serde](
+	cache.AutoCleanInterval(time.Hour), // clean up every hour
+	cache.MaxAge(4*time.Hour),          // expire entries after 4 hours
+)
+
+// Serde represents a serializer/deserializer.
+type Serde interface {
+	// Marshal returns the encoded representation of v.
+	Marshal(v any) ([]byte, error)
+	// Unmarshal parses encoded data and stores the result in the value pointed
+	// to by v. If v is nil or not a pointer, Unmarshal returns an error.
+	Unmarshal(b []byte, v any) error
+	// String returns the textual representation of the schema used by this serde.
+	String() string
+}
+
+type SerdeFactory struct {
+	// Parse takes the textual representation of the schema and parses it into
+	// a Schema.
+	Parse func([]byte) (Serde, error)
+	// SerdeForType returns a Schema that matches the structure of v.
+	SerdeForType func(v any) (Serde, error)
+}
+
+var KnownSerdeFactories = map[Type]SerdeFactory{
+	TypeAvro: {
+		Parse:        func(s []byte) (Serde, error) { return avro.Parse(s) },
+		SerdeForType: func(v any) (Serde, error) { return avro.SerdeForType(v) },
+	},
 }

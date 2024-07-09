@@ -15,6 +15,7 @@
 package schema
 
 import (
+	"errors"
 	"testing"
 
 	schemav1 "github.com/conduitio/conduit-commons/proto/schema/v1"
@@ -57,7 +58,7 @@ func TestSchema_ToProto(t *testing.T) {
 			name:    "when proto object is nil",
 			in:      nil,
 			want:    nil,
-			wantErr: errInvalidProtoIsNil,
+			wantErr: ErrInvalidProtoIsNil,
 		},
 		{
 			name: "when proto object is not nil",
@@ -88,7 +89,7 @@ func TestSchema_ToProto(t *testing.T) {
 				is.NoErr(err)
 				is.Equal(tc.in, tc.want)
 			} else {
-				is.Equal(err.Error(), tc.wantErr.Error())
+				is.True(errors.Is(err, tc.wantErr))
 			}
 		})
 	}

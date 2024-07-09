@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package schema
+package avro
 
 import (
 	"testing"
@@ -21,7 +21,7 @@ import (
 	"github.com/matryer/is"
 )
 
-func TestAvroBuilder_Build(t *testing.T) {
+func TestBuilder_Build(t *testing.T) {
 	is := is.New(t)
 
 	enumSchema, err := avro.NewEnumSchema("enum_schema", "enum_namespace", []string{"val1", "val2", "val3"})
@@ -43,7 +43,7 @@ func TestAvroBuilder_Build(t *testing.T) {
 	want, err := wantSchema.MarshalJSON()
 	is.NoErr(err)
 
-	got, err := NewAvroBuilder("schema_name", "schema_namespace").
+	got, err := NewBuilder("schema_name", "schema_namespace").
 		AddField("int_field", avro.NewPrimitiveSchema(avro.Int, nil), avro.WithDefault(100)).
 		AddField("enum_field", enumSchema).
 		MarshalJSON()

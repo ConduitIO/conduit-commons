@@ -38,6 +38,7 @@ func (s *Schema) FromProto(proto *schemav1.Schema) error {
 
 	s.Subject = proto.Subject
 	s.Version = int(proto.Version)
+	s.ID = int(proto.Id)
 	s.Type = Type(proto.Type)
 	s.Bytes = proto.Bytes
 
@@ -51,11 +52,12 @@ func (s *Schema) FromProto(proto *schemav1.Schema) error {
 // populated.
 func (s *Schema) ToProto(proto *schemav1.Schema) error {
 	if proto == nil {
-		return errInvalidProtoIsNil
+		return ErrInvalidProtoIsNil
 	}
 
 	proto.Subject = s.Subject
 	proto.Version = int32(s.Version)
+	proto.Id = int32(s.ID)
 	proto.Type = schemav1.Schema_Type(s.Type)
 	proto.Bytes = s.Bytes
 
