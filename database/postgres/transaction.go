@@ -1,4 +1,4 @@
-// Copyright © 2023 Meroxa, Inc.
+// Copyright © 2022 Meroxa, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,14 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build tools
-
-package main
+package postgres
 
 import (
-	_ "github.com/bufbuild/buf/cmd/buf"
-	_ "github.com/golangci/golangci-lint/cmd/golangci-lint"
-	_ "go.uber.org/mock/mockgen"
-	_ "golang.org/x/tools/cmd/stringer"
-	_ "mvdan.cc/gofumpt"
+	"context"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/rs/zerolog"
 )
+
+type Txn struct {
+	ctx    context.Context
+	logger zerolog.Logger
+	tx     pgx.Tx
+}
+
+func (t *Txn) Commit() error {
+	return t.tx.Commit(t.ctx)
+}
+
+func (t *Txn) Discard() {
+	err := t.tx.Rollback(t.ctx)
+	if err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		t.logger.Err(err).Ctx(t.ctx).Msg("could not discard transaction")
+	}
+}

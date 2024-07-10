@@ -1,4 +1,4 @@
-// Copyright © 2023 Meroxa, Inc.
+// Copyright © 2024 Meroxa, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,14 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build tools
-
-package main
+package sqlite
 
 import (
-	_ "github.com/bufbuild/buf/cmd/buf"
-	_ "github.com/golangci/golangci-lint/cmd/golangci-lint"
-	_ "go.uber.org/mock/mockgen"
-	_ "golang.org/x/tools/cmd/stringer"
-	_ "mvdan.cc/gofumpt"
+	"context"
+	"database/sql"
+	"errors"
+
+	"github.com/conduitio/conduit-commons/database"
+	"github.com/rs/zerolog"
 )
+
+type Transaction struct {
+	ctx    context.Context
+	tx     *sql.Tx
+	logger zerolog.Logger
+}
+
+var _ database.Transaction = (*Transaction)(nil)
+
+func (t *Transaction) Commit() error {
+	return t.tx.Commit()
+}
+
+func (t *Transaction) Discard() {
+	if err := t.tx.Rollback(); err != nil {
+		if !errors.Is(err, sql.ErrTxDone) {
+			t.logger.Err(err).Ctx(t.ctx).Msg("could not discard tx")
+		}
+	}
+}
