@@ -15,9 +15,7 @@
 package inmemory
 
 import (
-	"bytes"
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 
@@ -34,40 +32,8 @@ type DB struct {
 
 var _ database.DB = (*DB)(nil)
 
-type Txn struct {
-	db      *DB
-	old     map[string][]byte
-	changes map[string][]byte
-}
-
 func (d *DB) Ping(_ context.Context) error {
 	return nil
-}
-
-func (t *Txn) Commit() error {
-	t.db.m.Lock()
-	defer t.db.m.Unlock()
-
-	for k := range t.changes {
-		oldVal, oldOk := t.old[k]
-		newVal, newOk := t.db.values[k]
-
-		if !bytes.Equal(oldVal, newVal) || oldOk != newOk {
-			return fmt.Errorf("conflict on key %s", k)
-		}
-	}
-
-	for k, v := range t.changes {
-		t.db.values[k] = v
-		if v == nil {
-			delete(t.db.values, k)
-		}
-	}
-	return nil
-}
-
-func (t *Txn) Discard() {
-	// do nothing
 }
 
 func (d *DB) NewTransaction(ctx context.Context, _ bool) (database.Transaction, context.Context, error) {
@@ -91,8 +57,7 @@ func (d *DB) Set(ctx context.Context, key string, value []byte) error {
 	d.init()
 	txn := d.getTxn(ctx)
 	if txn != nil {
-		txn.changes[key] = value
-		return nil
+		return txn.set(key, value)
 	}
 
 	d.m.Lock()
@@ -110,18 +75,7 @@ func (d *DB) Get(ctx context.Context, key string) ([]byte, error) {
 	d.init()
 	txn := d.getTxn(ctx)
 	if txn != nil {
-		val, ok := txn.changes[key]
-		if ok {
-			if val == nil {
-				return nil, database.ErrKeyNotExist
-			}
-			return val, nil
-		}
-		val, ok = txn.old[key]
-		if !ok {
-			return nil, database.ErrKeyNotExist
-		}
-		return val, nil
+		return txn.get(key)
 	}
 
 	d.m.RLock()
@@ -138,28 +92,7 @@ func (d *DB) GetKeys(ctx context.Context, prefix string) ([]string, error) {
 	d.init()
 	txn := d.getTxn(ctx)
 	if txn != nil {
-		var result []string
-		for k := range txn.old {
-			if strings.HasPrefix(k, prefix) {
-				result = append(result, k)
-			}
-		}
-		for k, v := range txn.changes {
-			if strings.HasPrefix(k, prefix) {
-				if v == nil {
-					// it's a delete, remove the key
-					for i, rk := range result {
-						if rk == k {
-							result = append(result[:i], result[i+1:]...)
-							break
-						}
-					}
-				} else {
-					result = append(result, k)
-				}
-			}
-		}
-		return result, nil
+		return txn.getKeys(prefix)
 	}
 
 	d.m.RLock()
@@ -187,9 +120,9 @@ func (d *DB) Close() error {
 }
 
 func (d *DB) getTxn(ctx context.Context) *Txn {
-	t := database.TransactionFromContext(ctx)
-	if t == nil {
+	txn, ok := database.TransactionFromContext(ctx).(*Txn)
+	if !ok {
 		return nil
 	}
-	return t.(*Txn)
+	return txn
 }

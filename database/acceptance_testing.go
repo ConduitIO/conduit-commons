@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//nolint:thelper,err113 // This file contains tests, we don't have to be so strict.
 package database
 
 import (
@@ -186,6 +187,7 @@ func testTransactionVisibility(t *testing.T, db DB) {
 	})
 }
 
+//nolint:funlen,gocognit // this is a test
 func testConcurrency(t *testing.T, db DB) {
 	const (
 		workers = 20

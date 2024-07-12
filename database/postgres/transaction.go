@@ -17,19 +17,23 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog"
 )
 
 type Txn struct {
-	ctx    context.Context
+	ctx    context.Context //nolint:containedctx // This is a transaction context
 	logger zerolog.Logger
 	tx     pgx.Tx
 }
 
 func (t *Txn) Commit() error {
-	return t.tx.Commit(t.ctx)
+	if err := t.tx.Commit(t.ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
 }
 
 func (t *Txn) Discard() {

@@ -16,6 +16,7 @@ package badger
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -78,7 +79,10 @@ func (d *DB) NewTransaction(ctx context.Context, update bool) (database.Transact
 
 // Close flushes any pending writes and closes the db.
 func (d *DB) Close() error {
-	return d.db.Close()
+	if err := d.db.Close(); err != nil {
+		return fmt.Errorf("failed to close badger db: %w", err)
+	}
+	return nil
 }
 
 // Get finds the value corresponding to the key and returns it or an error.
@@ -96,7 +100,7 @@ func (d *DB) Get(ctx context.Context, key string) ([]byte, error) {
 func (d *DB) getWithTxn(txn *badger.Txn, key string) ([]byte, error) {
 	item, err := txn.Get([]byte(key))
 	if err != nil {
-		if err == badger.ErrKeyNotFound {
+		if errors.Is(err, badger.ErrKeyNotFound) {
 			err = database.ErrKeyNotExist // translate to internal error
 		}
 		return nil, fmt.Errorf("badger: could not get key %q: %w", key, err)
@@ -180,9 +184,9 @@ func (d *DB) getKeysWithTxn(txn *badger.Txn, prefix string) ([]string, error) {
 // getTxn takes the transaction out of the context and returns it. If the
 // context does not contain a transaction it returns nil.
 func (d *DB) getTxn(ctx context.Context) *badger.Txn {
-	txn := database.TransactionFromContext(ctx)
-	if txn == nil {
+	txn, ok := database.TransactionFromContext(ctx).(*badger.Txn)
+	if !ok {
 		return nil
 	}
-	return txn.(*badger.Txn)
+	return txn
 }

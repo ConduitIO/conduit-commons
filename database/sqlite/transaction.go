@@ -18,13 +18,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/conduitio/conduit-commons/database"
 	"github.com/rs/zerolog"
 )
 
 type Transaction struct {
-	ctx    context.Context
+	ctx    context.Context //nolint:containedctx // This is a transaction context
 	tx     *sql.Tx
 	logger zerolog.Logger
 }
@@ -32,7 +33,10 @@ type Transaction struct {
 var _ database.Transaction = (*Transaction)(nil)
 
 func (t *Transaction) Commit() error {
-	return t.tx.Commit()
+	if err := t.tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
 }
 
 func (t *Transaction) Discard() {

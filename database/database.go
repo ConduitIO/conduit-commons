@@ -21,10 +21,8 @@ import (
 	"errors"
 )
 
-var (
-	// ErrKeyNotExist is returned from DB.Get when retrieving a non-existing key.
-	ErrKeyNotExist = errors.New("key does not exist")
-)
+// ErrKeyNotExist is returned from DB.Get when retrieving a non-existing key.
+var ErrKeyNotExist = errors.New("key does not exist")
 
 // DB defines the interface for a key-value store.
 type DB interface {

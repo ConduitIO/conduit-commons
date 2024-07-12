@@ -105,7 +105,10 @@ func (d *DB) init(ctx context.Context) error {
 }
 
 func (d *DB) Ping(ctx context.Context) error {
-	return d.pool.Ping(ctx)
+	if err := d.pool.Ping(ctx); err != nil {
+		return fmt.Errorf("could not ping postgres database: %w", err)
+	}
+	return nil
 }
 
 // NewTransaction starts a new transaction. The `update` parameter controls the
@@ -223,19 +226,19 @@ func (d *DB) GetKeys(ctx context.Context, prefix string) ([]string, error) {
 func (d *DB) getQuerier(ctx context.Context) querier {
 	txn := d.getTxn(ctx)
 	if txn != nil {
-		return txn
+		return txn.tx
 	}
 	return d.pool
 }
 
 // getTxn takes the transaction out of the context and returns it. If the
 // context does not contain a transaction it returns nil.
-func (d *DB) getTxn(ctx context.Context) pgx.Tx {
-	txn := database.TransactionFromContext(ctx)
-	if txn == nil {
+func (d *DB) getTxn(ctx context.Context) *Txn {
+	txn, ok := database.TransactionFromContext(ctx).(*Txn)
+	if !ok {
 		return nil
 	}
-	return txn.(*Txn).tx
+	return txn
 }
 
 type querier interface {

@@ -31,7 +31,7 @@ func ContextWithTransaction(ctx context.Context, transaction Transaction) contex
 func TransactionFromContext(ctx context.Context) Transaction {
 	transaction := ctx.Value(transactionCtxKey{})
 	if transaction != nil {
-		return transaction.(Transaction)
+		return transaction.(Transaction) //nolint:forcetypeassert // We know the type
 	}
 	return nil
 }

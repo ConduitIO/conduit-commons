@@ -26,7 +26,7 @@ import (
 
 	"github.com/conduitio/conduit-commons/database"
 	"github.com/rs/zerolog"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // import sqlite driver
 )
 
 type DB struct {
@@ -93,11 +93,17 @@ func (d *DB) NewTransaction(ctx context.Context, update bool) (database.Transact
 
 // Close closes all open connections.
 func (d *DB) Close() error {
-	return d.db.Close()
+	if err := d.db.Close(); err != nil {
+		return fmt.Errorf("failed to close sqlite database: %w", err)
+	}
+	return nil
 }
 
-func (d *DB) Ping(ctx context.Context) error {
-	return d.db.Ping()
+func (d *DB) Ping(context.Context) error {
+	if err := d.db.Ping(); err != nil {
+		return fmt.Errorf("failed to ping sqlite database: %w", err)
+	}
+	return nil
 }
 
 // Set will store the value under the key. If value is `nil` we consider that a
@@ -194,19 +200,19 @@ type querier interface {
 func (d *DB) getQuerier(ctx context.Context) querier {
 	txn := d.getTxn(ctx)
 	if txn != nil {
-		return txn
+		return txn.tx
 	}
 	return d.db
 }
 
 // getTxn takes the transaction out of the context and returns it. If the
 // context does not contain a transaction it returns nil.
-func (d *DB) getTxn(ctx context.Context) *sql.Tx {
-	txn := database.TransactionFromContext(ctx)
-	if txn == nil {
+func (d *DB) getTxn(ctx context.Context) *Transaction {
+	txn, ok := database.TransactionFromContext(ctx).(*Transaction)
+	if !ok {
 		return nil
 	}
-	return txn.(*Transaction).tx
+	return txn
 }
 
 func dburl(path string) (string, error) {
@@ -224,11 +230,11 @@ func dburl(path string) (string, error) {
 
 	abspath, err := filepath.Abs(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
 	if err := os.MkdirAll(abspath, 0o700); err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create directories in path %s: %w", abspath, err)
 	}
 
 	u := url.URL{
