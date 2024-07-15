@@ -21,7 +21,7 @@ require (
 	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8
 	golang.org/x/tools v0.23.0
 	google.golang.org/protobuf v1.34.2
-	modernc.org/sqlite v1.30.1
+	modernc.org/sqlite v1.30.2
 	mvdan.cc/gofumpt v0.6.0
 )
 
