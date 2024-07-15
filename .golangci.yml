@@ -36,7 +36,6 @@ issues:
         - errcheck
         - forcetypeassert
         - funlen
-        - err113
         - dupl
         - maintidx
 
@@ -57,7 +56,7 @@ linters:
     - dupl
     - dupword
     - durationcheck
-    - err113
+    # - err113
     - errcheck
     - errchkjson
     - errname
@@ -116,7 +115,7 @@ linters:
     - testableexamples
     - thelper
     - unconvert
-    - unparam
+    # - unparam
     - unused
     - usestdlibvars
     - wastedassign

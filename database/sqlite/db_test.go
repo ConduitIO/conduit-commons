@@ -1,4 +1,4 @@
-// Copyright © 2023 Meroxa, Inc.
+// Copyright © 2024 Meroxa, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,14 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build tools
-
-package main
+package sqlite
 
 import (
-	_ "github.com/bufbuild/buf/cmd/buf"
-	_ "github.com/golangci/golangci-lint/cmd/golangci-lint"
-	_ "go.uber.org/mock/mockgen"
-	_ "golang.org/x/tools/cmd/stringer"
-	_ "mvdan.cc/gofumpt"
+	"context"
+	"testing"
+
+	"github.com/conduitio/conduit-commons/database"
+	"github.com/matryer/is"
+	"github.com/rs/zerolog"
 )
+
+func TestDB(t *testing.T) {
+	is := is.New(t)
+
+	db, err := New(
+		context.Background(),
+		zerolog.Nop(),
+		t.TempDir(),
+		"conduit_kv_test",
+	)
+	is.NoErr(err)
+	database.AcceptanceTest(t, db)
+}
