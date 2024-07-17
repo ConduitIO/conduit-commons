@@ -18,6 +18,8 @@ package schema
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/conduitio/conduit-commons/rabin"
@@ -124,4 +126,31 @@ var KnownSerdeFactories = map[Type]SerdeFactory{
 		Parse:        func(s []byte) (Serde, error) { return avro.Parse(s) },
 		SerdeForType: func(v any) (Serde, error) { return avro.SerdeForType(v) },
 	},
+}
+
+// MarshalText returns the textual representation of the schema type.
+func (t Type) MarshalText() ([]byte, error) {
+	return []byte(t.String()), nil
+}
+
+// UnmarshalText parses the textual representation of the schema type.
+func (t *Type) UnmarshalText(b []byte) error {
+	if len(b) == 0 {
+		return nil // empty string, do nothing
+	}
+
+	switch string(b) {
+	case TypeAvro.String():
+		*t = TypeAvro
+	default:
+		// it's not a known type, but we also allow Type(int)
+		valIntRaw := strings.TrimSuffix(strings.TrimPrefix(string(b), "Type("), ")")
+		valInt, err := strconv.Atoi(valIntRaw)
+		if err != nil {
+			return fmt.Errorf("schema type %q: %w", b, ErrUnsupportedType)
+		}
+		*t = Type(valInt)
+	}
+
+	return nil
 }

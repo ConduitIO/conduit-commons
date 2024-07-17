@@ -32,24 +32,24 @@ const (
 // Operation defines what triggered the creation of a record.
 type Operation int
 
-func (i Operation) MarshalText() ([]byte, error) {
-	return []byte(i.String()), nil
+func (o Operation) MarshalText() ([]byte, error) {
+	return []byte(o.String()), nil
 }
 
-func (i *Operation) UnmarshalText(b []byte) error {
+func (o *Operation) UnmarshalText(b []byte) error {
 	if len(b) == 0 {
 		return nil // empty string, do nothing
 	}
 
 	switch string(b) {
 	case OperationCreate.String():
-		*i = OperationCreate
+		*o = OperationCreate
 	case OperationUpdate.String():
-		*i = OperationUpdate
+		*o = OperationUpdate
 	case OperationDelete.String():
-		*i = OperationDelete
+		*o = OperationDelete
 	case OperationSnapshot.String():
-		*i = OperationSnapshot
+		*o = OperationSnapshot
 	default:
 		// it's not a known operation, but we also allow Operation(int)
 		valIntRaw := strings.TrimSuffix(strings.TrimPrefix(string(b), "Operation("), ")")
@@ -57,7 +57,7 @@ func (i *Operation) UnmarshalText(b []byte) error {
 		if err != nil {
 			return fmt.Errorf("operation %q: %w", b, ErrUnknownOperation)
 		}
-		*i = Operation(valInt)
+		*o = Operation(valInt)
 	}
 
 	return nil
