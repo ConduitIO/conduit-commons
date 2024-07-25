@@ -3,7 +3,7 @@ module github.com/conduitio/conduit-commons
 go 1.22.4
 
 require (
-	github.com/bufbuild/buf v1.35.0
+	github.com/bufbuild/buf v1.35.1
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/goccy/go-json v0.10.3
 	github.com/golangci/golangci-lint v1.59.1
