@@ -63,8 +63,8 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 		)),
 	}, {
 		name:       "int",
-		haveValue:  int(1),
-		wantValue:  int(1),
+		haveValue:  int(4525347614434344400),
+		wantValue:  int(4525347614434344400),
 		wantSchema: avro.NewPrimitiveSchema(avro.Int, nil),
 	}, {
 		name:      "int ptr (0)",
