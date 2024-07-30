@@ -358,6 +358,31 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 			},
 		)),
 	}, {
+		name:       "duration",
+		haveValue:  time.Duration(12345678999),
+		wantValue:  time.Duration(12345678000), // duration is truncated to milliseconds
+		wantSchema: avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros)),
+	}, {
+		name:      "duration ptr (0)",
+		haveValue: func() *time.Duration { var v time.Duration; return &v }(),
+		wantValue: time.Duration(0), // ptr is unmarshalled into value
+		wantSchema: must(avro.NewUnionSchema(
+			[]avro.Schema{
+				avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros)),
+				avro.NewPrimitiveSchema(avro.Null, nil),
+			},
+		)),
+	}, {
+		name:      "duration ptr (nil)",
+		haveValue: (*time.Duration)(nil),
+		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantSchema: must(avro.NewUnionSchema(
+			[]avro.Schema{
+				avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros)),
+				avro.NewPrimitiveSchema(avro.Null, nil),
+			},
+		)),
+	}, {
 		name:       "[]int",
 		haveValue:  []int{1, 2, 3},
 		wantValue:  []any{int64(1), int64(2), int64(3)},
