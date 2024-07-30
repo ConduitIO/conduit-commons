@@ -66,9 +66,9 @@ func (e extractor) extract(path []string, v reflect.Value, t reflect.Type) (avro
 	switch t.Kind() { //nolint:exhaustive // some types are not supported
 	case reflect.Bool:
 		return avro.NewPrimitiveSchema(avro.Boolean, nil), nil
-	case reflect.Int64, reflect.Uint32:
+	case reflect.Int, reflect.Int64, reflect.Uint32:
 		return avro.NewPrimitiveSchema(avro.Long, nil), nil
-	case reflect.Int, reflect.Int32, reflect.Int16, reflect.Uint16, reflect.Int8, reflect.Uint8:
+	case reflect.Int32, reflect.Int16, reflect.Uint16, reflect.Int8, reflect.Uint8:
 		return avro.NewPrimitiveSchema(avro.Int, nil), nil
 	case reflect.Float32:
 		return avro.NewPrimitiveSchema(avro.Float, nil), nil

@@ -9,7 +9,7 @@ require (
 	github.com/golangci/golangci-lint v1.59.1
 	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.6.0
-	github.com/hamba/avro/v2 v2.23.0
+	github.com/hamba/avro/v2 v2.23.1-0.20240729184924-dfd5956e73a9
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/matryer/is v1.4.1
 	github.com/mitchellh/mapstructure v1.5.0

@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/conduitio/conduit-commons/opencdc"
+	"github.com/google/go-cmp/cmp"
 	"github.com/matryer/is"
 )
 
@@ -36,25 +37,29 @@ func TestUnionResolver(t *testing.T) {
 	}, {
 		name: "int",
 		have: 123,
-		want: map[string]any{"int": 123},
+		want: map[string]any{"long": 123},
 	}, {
-		name: "boolean",
+		name: "int32",
+		have: int32(123),
+		want: map[string]any{"int": int32(123)},
+	}, {
+		name: "bool",
 		have: true,
 		want: map[string]any{"boolean": true},
 	}, {
-		name: "double",
+		name: "float64",
 		have: 1.23,
 		want: map[string]any{"double": 1.23},
 	}, {
-		name: "float",
+		name: "float32",
 		have: float32(1.23),
 		want: map[string]any{"float": float32(1.23)},
 	}, {
-		name: "long",
+		name: "int64",
 		have: int64(321),
 		want: map[string]any{"long": int64(321)},
 	}, {
-		name: "bytes",
+		name: "[]byte",
 		have: []byte{1, 2, 3, 4},
 		want: map[string]any{"bytes": []byte{1, 2, 3, 4}},
 	}, {
@@ -62,11 +67,11 @@ func TestUnionResolver(t *testing.T) {
 		have: nil,
 		want: nil,
 	}, {
-		name: "int array",
+		name: "[]int",
 		have: []int{1, 2, 3, 4},
 		want: map[string]any{"array": []int{1, 2, 3, 4}},
 	}, {
-		name: "nil bool array",
+		name: "nil []bool",
 		have: []bool(nil),
 		want: map[string]any{"array": []bool(nil)},
 	}}
@@ -144,12 +149,12 @@ func TestUnionResolver(t *testing.T) {
 			// before marshal we should change the nested map
 			err = mur.BeforeMarshal(have)
 			is.NoErr(err)
-			is.Equal(want, have)
+			is.Equal("", cmp.Diff(want, have))
 
 			// after unmarshal we should have the same record as at the start
 			err = mur.AfterUnmarshal(have)
 			is.NoErr(err)
-			is.Equal(newRecord(), have)
+			is.Equal("", cmp.Diff(newRecord(), have))
 		})
 	}
 }
