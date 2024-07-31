@@ -73,12 +73,6 @@ func (e extractor) extract(path []string, v reflect.Value, t reflect.Type) (avro
 				avro.Long,
 				avro.NewPrimitiveLogicalSchema(avro.TimeMicros),
 			), nil
-			// return avro.NewFixedSchema(
-			// 	"duration",
-			// 	"",
-			// 	12,
-			// 	avro.NewPrimitiveLogicalSchema(avro.Duration),
-			// )
 		}
 		return avro.NewPrimitiveSchema(avro.Long, nil), nil
 	case reflect.Int32, reflect.Int16, reflect.Uint16, reflect.Int8, reflect.Uint8:
