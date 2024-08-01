@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package clang
+package lang
 
 func Ptr[T any](t T) *T {
 	return &t
