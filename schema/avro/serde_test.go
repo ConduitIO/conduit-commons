@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/conduitio/conduit-commons/opencdc"
+	"github.com/google/go-cmp/cmp"
 	"github.com/hamba/avro/v2"
 	"github.com/matryer/is"
 )
@@ -32,7 +33,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 		name string
 		// haveValue is the value we use to extract the schema and which gets marshaled
 		haveValue any
-		// wantValue is the expected value we get when haveValue gets marshaled and unmarshaled
+		// wantValue is the expected value we get when haveValue gets marshaled and unmarshalled
 		wantValue any
 		// wantSchema is the schema expected to be extracted from haveValue
 		wantSchema avro.Schema
@@ -54,7 +55,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:      "boolean ptr (nil)",
 		haveValue: (*bool)(nil),
-		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantValue: nil, // when unmarshalling we get an untyped nil
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.Boolean, nil),
@@ -63,26 +64,26 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 		)),
 	}, {
 		name:       "int",
-		haveValue:  int(1),
-		wantValue:  int(1),
-		wantSchema: avro.NewPrimitiveSchema(avro.Int, nil),
+		haveValue:  int(4525347614434344400),
+		wantValue:  int64(4525347614434344400),
+		wantSchema: avro.NewPrimitiveSchema(avro.Long, nil),
 	}, {
 		name:      "int ptr (0)",
 		haveValue: func() *int { var v int; return &v }(),
-		wantValue: 0, // ptr is unmarshalled into value
+		wantValue: int64(0), // ptr is unmarshalled into value
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
-				avro.NewPrimitiveSchema(avro.Int, nil),
+				avro.NewPrimitiveSchema(avro.Long, nil),
 				avro.NewPrimitiveSchema(avro.Null, nil),
 			},
 		)),
 	}, {
 		name:      "int ptr (nil)",
 		haveValue: (*int)(nil),
-		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantValue: nil, // when unmarshalling we get an untyped nil
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
-				avro.NewPrimitiveSchema(avro.Int, nil),
+				avro.NewPrimitiveSchema(avro.Long, nil),
 				avro.NewPrimitiveSchema(avro.Null, nil),
 			},
 		)),
@@ -104,7 +105,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:      "int64 ptr (nil)",
 		haveValue: (*int64)(nil),
-		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantValue: nil, // when unmarshalling we get an untyped nil
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.Long, nil),
@@ -129,7 +130,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:      "int32 ptr (nil)",
 		haveValue: (*int32)(nil),
-		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantValue: nil, // when unmarshalling we get an untyped nil
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.Int, nil),
@@ -154,7 +155,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:      "int16 ptr (nil)",
 		haveValue: (*int16)(nil),
-		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantValue: nil, // when unmarshalling we get an untyped nil
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.Int, nil),
@@ -179,7 +180,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:      "int8 ptr (nil)",
 		haveValue: (*int8)(nil),
-		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantValue: nil, // when unmarshalling we get an untyped nil
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.Int, nil),
@@ -204,7 +205,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:      "uint32 ptr (nil)",
 		haveValue: (*uint32)(nil),
-		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantValue: nil, // when unmarshalling we get an untyped nil
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.Long, nil),
@@ -229,7 +230,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:      "uint16 ptr (nil)",
 		haveValue: (*uint16)(nil),
-		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantValue: nil, // when unmarshalling we get an untyped nil
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.Int, nil),
@@ -254,7 +255,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:      "uint8 ptr (nil)",
 		haveValue: (*uint8)(nil),
-		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantValue: nil, // when unmarshalling we get an untyped nil
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.Int, nil),
@@ -279,7 +280,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:      "float64 ptr (nil)",
 		haveValue: (*float64)(nil),
-		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantValue: nil, // when unmarshalling we get an untyped nil
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.Double, nil),
@@ -304,7 +305,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:      "float32 ptr (nil)",
 		haveValue: (*float32)(nil),
-		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantValue: nil, // when unmarshalling we get an untyped nil
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.Float, nil),
@@ -329,7 +330,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:      "string ptr (nil)",
 		haveValue: (*string)(nil),
-		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantValue: nil, // when unmarshalling we get an untyped nil
 		wantSchema: must(avro.NewUnionSchema(
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.String, nil),
@@ -357,18 +358,43 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 			},
 		)),
 	}, {
+		name:       "duration",
+		haveValue:  time.Duration(12345678999),
+		wantValue:  time.Duration(12345678000), // duration is truncated to milliseconds
+		wantSchema: avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros)),
+	}, {
+		name:      "duration ptr (0)",
+		haveValue: func() *time.Duration { var v time.Duration; return &v }(),
+		wantValue: time.Duration(0), // ptr is unmarshalled into value
+		wantSchema: must(avro.NewUnionSchema(
+			[]avro.Schema{
+				avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros)),
+				avro.NewPrimitiveSchema(avro.Null, nil),
+			},
+		)),
+	}, {
+		name:      "duration ptr (nil)",
+		haveValue: (*time.Duration)(nil),
+		wantValue: nil, // when unmarshaling we get an untyped nil
+		wantSchema: must(avro.NewUnionSchema(
+			[]avro.Schema{
+				avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros)),
+				avro.NewPrimitiveSchema(avro.Null, nil),
+			},
+		)),
+	}, {
 		name:       "[]int",
 		haveValue:  []int{1, 2, 3},
-		wantValue:  []any{1, 2, 3},
-		wantSchema: avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Int, nil)),
+		wantValue:  []any{int64(1), int64(2), int64(3)},
+		wantSchema: avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, nil)),
 	}, {
 		name:      "[]any (with data)",
 		haveValue: []any{1, "foo"},
-		wantValue: []any{1, "foo"},
+		wantValue: []any{int64(1), "foo"},
 		wantSchema: avro.NewArraySchema(must(avro.NewUnionSchema(
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.String, nil),
-				avro.NewPrimitiveSchema(avro.Int, nil),
+				avro.NewPrimitiveSchema(avro.Long, nil),
 				avro.NewPrimitiveSchema(avro.Null, nil),
 			},
 		))),
@@ -385,19 +411,19 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:       "[][]int",
 		haveValue:  [][]int{{1}, {2, 3}},
-		wantValue:  []any{[]any{1}, []any{2, 3}},
-		wantSchema: avro.NewArraySchema(avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Int, nil))),
+		wantValue:  []any{[]any{int64(1)}, []any{int64(2), int64(3)}},
+		wantSchema: avro.NewArraySchema(avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, nil))),
 	}, {
 		name: "map[string]int",
 		haveValue: map[string]int{
 			"foo": 1,
 			"bar": 2,
 		},
-		wantValue: map[string]any{ // all maps are unmarshaled into map[string]any
-			"foo": 1,
-			"bar": 2,
+		wantValue: map[string]any{ // all maps are unmarshalled into map[string]any
+			"foo": int64(1),
+			"bar": int64(2),
 		},
-		wantSchema: avro.NewMapSchema(avro.NewPrimitiveSchema(avro.Int, nil)),
+		wantSchema: avro.NewMapSchema(avro.NewPrimitiveSchema(avro.Long, nil)),
 	}, {
 		name: "map[string]any (with primitive data)",
 		haveValue: map[string]any{
@@ -409,12 +435,12 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 		wantValue: map[string]any{
 			"foo":  "bar",
 			"foo2": "bar2",
-			"bar":  1,
+			"bar":  int64(1),
 			"baz":  true,
 		},
 		wantSchema: avro.NewMapSchema(must(avro.NewUnionSchema([]avro.Schema{
 			&avro.NullSchema{},
-			avro.NewPrimitiveSchema(avro.Int, nil),
+			avro.NewPrimitiveSchema(avro.Long, nil),
 			avro.NewPrimitiveSchema(avro.String, nil),
 			avro.NewPrimitiveSchema(avro.Boolean, nil),
 		}))),
@@ -429,14 +455,14 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 		wantValue: map[string]any{
 			"foo":  "bar",
 			"foo2": "bar2",
-			"bar":  1,
-			"baz":  []any{1, 2, 3},
+			"bar":  int64(1),
+			"baz":  []any{int64(1), int64(2), int64(3)},
 		},
 		wantSchema: avro.NewMapSchema(must(avro.NewUnionSchema([]avro.Schema{
 			&avro.NullSchema{},
-			avro.NewPrimitiveSchema(avro.Int, nil),
+			avro.NewPrimitiveSchema(avro.Long, nil),
 			avro.NewPrimitiveSchema(avro.String, nil),
-			avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Int, nil)),
+			avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, nil)),
 		}))),
 	}, {
 		name: "map[string]any (with union array)",
@@ -450,17 +476,17 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 		wantValue: map[string]any{
 			"foo":  "bar",
 			"foo2": "bar2",
-			"bar":  1,
-			"baz":  []any{1, 2, 3},
+			"bar":  int64(1),
+			"baz":  []any{int64(1), int64(2), int64(3)},
 			"baz2": []any{"foo", true},
 		},
 		wantSchema: avro.NewMapSchema(must(avro.NewUnionSchema([]avro.Schema{
 			&avro.NullSchema{},
-			avro.NewPrimitiveSchema(avro.Int, nil),
+			avro.NewPrimitiveSchema(avro.Long, nil),
 			avro.NewPrimitiveSchema(avro.String, nil),
 			avro.NewArraySchema(must(avro.NewUnionSchema([]avro.Schema{
 				&avro.NullSchema{},
-				avro.NewPrimitiveSchema(avro.Int, nil),
+				avro.NewPrimitiveSchema(avro.Long, nil),
 				avro.NewPrimitiveSchema(avro.String, nil),
 				avro.NewPrimitiveSchema(avro.Boolean, nil),
 			}))),
@@ -484,14 +510,14 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 		wantValue: map[string]any{
 			"foo": map[string]any{
 				"bar": "baz",
-				"baz": 1,
+				"baz": int64(1),
 			},
 		},
 		wantSchema: avro.NewMapSchema(must(avro.NewUnionSchema([]avro.Schema{
 			&avro.NullSchema{},
 			avro.NewMapSchema(must(avro.NewUnionSchema([]avro.Schema{
 				&avro.NullSchema{},
-				avro.NewPrimitiveSchema(avro.Int, nil),
+				avro.NewPrimitiveSchema(avro.Long, nil),
 				avro.NewPrimitiveSchema(avro.String, nil),
 			}))),
 		}))),
@@ -503,10 +529,10 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 			"baz": []int{1, 2, 3},
 			"tz":  now,
 		},
-		wantValue: map[string]any{ // structured data is unmarshaled into a map
+		wantValue: map[string]any{ // structured data is unmarshalled into a map
 			"foo": "bar",
-			"bar": 1,
-			"baz": []any{1, 2, 3},
+			"bar": int64(1),
+			"baz": []any{int64(1), int64(2), int64(3)},
 			"tz":  now.Truncate(time.Microsecond), // Avro cannot does not support nanoseconds
 		},
 		wantSchema: must(avro.NewRecordSchema(
@@ -514,8 +540,8 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 			"",
 			[]*avro.Field{
 				must(avro.NewField("foo", avro.NewPrimitiveSchema(avro.String, nil))),
-				must(avro.NewField("bar", avro.NewPrimitiveSchema(avro.Int, nil))),
-				must(avro.NewField("baz", avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Int, nil)))),
+				must(avro.NewField("bar", avro.NewPrimitiveSchema(avro.Long, nil))),
+				must(avro.NewField("baz", avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, nil)))),
 				must(avro.NewField("tz", avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros)))),
 			},
 		)),
@@ -542,7 +568,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 				)),
 			}
 			wantSerde.sort()
-			is.Equal(wantSerde.String(), gotSerde.String())
+			is.Equal("", cmp.Diff(wantSerde.String(), gotSerde.String()))
 
 			// now try to marshal the value with the schema
 			bytes, err := gotSerde.Marshal(haveValue)
@@ -554,7 +580,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 			is.NoErr(err)
 
 			wantValue := newRecord(tc.wantValue)
-			is.Equal(wantValue, gotValue)
+			is.Equal("", cmp.Diff(wantValue, gotValue))
 		})
 	}
 }
@@ -618,9 +644,9 @@ func TestSerdeForType_NestedStructuredData(t *testing.T) {
 	bytes, err := got.Marshal(have)
 	is.NoErr(err)
 	// only try to unmarshal to ensure there's no error, other tests assert that
-	// umarshaled data matches the expectations
-	var unmarshaled opencdc.StructuredData
-	err = got.Unmarshal(bytes, &unmarshaled)
+	// unmarshalled data matches the expectations
+	var unmarshalled opencdc.StructuredData
+	err = got.Unmarshal(bytes, &unmarshalled)
 	is.NoErr(err)
 }
 

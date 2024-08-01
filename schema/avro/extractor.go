@@ -28,6 +28,7 @@ var (
 	structuredDataType = reflect.TypeFor[opencdc.StructuredData]()
 	byteType           = reflect.TypeFor[byte]()
 	timeType           = reflect.TypeFor[time.Time]()
+	durationType       = reflect.TypeFor[time.Duration]()
 )
 
 // extractor exposes a way to extract an Avro schema from a Go value.
@@ -66,9 +67,15 @@ func (e extractor) extract(path []string, v reflect.Value, t reflect.Type) (avro
 	switch t.Kind() { //nolint:exhaustive // some types are not supported
 	case reflect.Bool:
 		return avro.NewPrimitiveSchema(avro.Boolean, nil), nil
-	case reflect.Int64, reflect.Uint32:
+	case reflect.Int, reflect.Int64, reflect.Uint32:
+		if t == durationType {
+			return avro.NewPrimitiveSchema(
+				avro.Long,
+				avro.NewPrimitiveLogicalSchema(avro.TimeMicros),
+			), nil
+		}
 		return avro.NewPrimitiveSchema(avro.Long, nil), nil
-	case reflect.Int, reflect.Int32, reflect.Int16, reflect.Uint16, reflect.Int8, reflect.Uint8:
+	case reflect.Int32, reflect.Int16, reflect.Uint16, reflect.Int8, reflect.Uint8:
 		return avro.NewPrimitiveSchema(avro.Int, nil), nil
 	case reflect.Float32:
 		return avro.NewPrimitiveSchema(avro.Float, nil), nil
