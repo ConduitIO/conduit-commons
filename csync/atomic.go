@@ -20,9 +20,9 @@ import (
 	"github.com/conduitio/conduit-commons/lang"
 )
 
-func NewAtomicPointer[T any](val T) *atomic.Pointer[T] {
+func NewAtomicPointer[T any](val T) atomic.Pointer[T] {
 	var p atomic.Pointer[T]
 	p.Store(lang.Ptr(val))
 
-	return &p
+	return p
 }
