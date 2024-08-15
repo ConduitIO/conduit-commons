@@ -15,8 +15,9 @@
 package csync
 
 import (
-	"github.com/conduitio/conduit-commons/lang"
 	"sync/atomic"
+
+	"github.com/conduitio/conduit-commons/lang"
 )
 
 func NewAtomicPointer[T any](val T) *atomic.Pointer[T] {

@@ -15,8 +15,9 @@
 package csync
 
 import (
-	"github.com/matryer/is"
 	"testing"
+
+	"github.com/matryer/is"
 )
 
 func TestNewAtomicPointer(t *testing.T) {
@@ -41,7 +42,7 @@ func TestNewAtomicPointer(t *testing.T) {
 		{
 			name: "struct",
 			val: testCase{
-				name: "test test case",
+				name: "test case",
 				val:  []string{"a", "b", "c"},
 			},
 		},
