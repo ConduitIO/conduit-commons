@@ -17,7 +17,10 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Check generated files
+        env:
+          BUF_TOKEN: ${{ secrets.BUF_TOKEN }}
         run: |
           export PATH=$PATH:$(go env GOPATH)/bin
-          make install-tools generate buf
+          make install-tools generate proto-generate
+          git diff
           git diff --exit-code --numstat
