@@ -30,7 +30,7 @@ generate:
 
 .PHONY: proto-generate
 proto-generate:
-	rm -rf proto/gen && cd proto && buf generate
+	cd proto && buf generate
 
 .PHONY: proto-update
 proto-update:
