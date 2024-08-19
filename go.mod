@@ -22,7 +22,7 @@ require (
 	golang.org/x/tools v0.24.0
 	google.golang.org/protobuf v1.34.2
 	modernc.org/sqlite v1.32.0
-	mvdan.cc/gofumpt v0.6.0
+	mvdan.cc/gofumpt v0.7.0
 )
 
 require (
