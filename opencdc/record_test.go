@@ -69,7 +69,6 @@ func TestRecord_Clone(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			is := is.New(t)
 			got := tc.input.Clone()

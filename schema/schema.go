@@ -149,7 +149,7 @@ func (t *Type) UnmarshalText(b []byte) error {
 		if err != nil {
 			return fmt.Errorf("schema type %q: %w", b, ErrUnsupportedType)
 		}
-		*t = Type(valInt)
+		*t = Type(valInt) //nolint:gosec // no risk of overflow
 	}
 
 	return nil

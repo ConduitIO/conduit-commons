@@ -130,7 +130,7 @@ func (r Record) ToProto(proto *opencdcv1.Record) error {
 
 	proto.Position = r.Position
 	proto.Metadata = r.Metadata
-	proto.Operation = opencdcv1.Operation(r.Operation)
+	proto.Operation = opencdcv1.Operation(r.Operation) //nolint:gosec // no risk of overflow
 	return nil
 }
 

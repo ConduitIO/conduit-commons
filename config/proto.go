@@ -158,7 +158,7 @@ func (p Parameters) ToProto(proto map[string]*configv1.Parameter) {
 func (p Parameter) ToProto(proto *configv1.Parameter) {
 	proto.Default = p.Default
 	proto.Description = p.Description
-	proto.Type = configv1.Parameter_Type(p.Type)
+	proto.Type = configv1.Parameter_Type(p.Type) //nolint:gosec // no risk of overflow
 	proto.Validations = validationsToProto(p.Validations)
 }
 
@@ -176,7 +176,7 @@ func validationsToProto(validations []Validation) []*configv1.Validation {
 
 func validationToProto(validation Validation) *configv1.Validation {
 	return &configv1.Validation{
-		Type:  configv1.Validation_Type(validation.Type()),
+		Type:  configv1.Validation_Type(validation.Type()), //nolint:gosec // no risk of overflow
 		Value: validation.Value(),
 	}
 }
