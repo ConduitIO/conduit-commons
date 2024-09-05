@@ -56,8 +56,8 @@ func (s *Schema) ToProto(proto *schemav1.Schema) error {
 	}
 
 	proto.Subject = s.Subject
-	proto.Version = int32(s.Version)
-	proto.Id = int32(s.ID)
+	proto.Version = int32(s.Version) //nolint:gosec // no risk of overflow
+	proto.Id = int32(s.ID)           //nolint:gosec // no risk of overflow
 	proto.Type = schemav1.Schema_Type(s.Type)
 	proto.Bytes = s.Bytes
 

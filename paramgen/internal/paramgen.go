@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//nolint:err113,wrapcheck // we don't care about wrapping errors here
+//nolint:err113,wrapcheck,staticcheck // we don't care about wrapping errors here, also ignore usage of ast.Package (deprecated)
 package internal
 
 import (
