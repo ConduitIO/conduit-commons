@@ -3,14 +3,14 @@ module github.com/conduitio/conduit-commons
 go 1.22.4
 
 require (
-	github.com/bufbuild/buf v1.40.0
+	github.com/bufbuild/buf v1.40.1
 	github.com/dgraph-io/badger/v4 v4.3.0
 	github.com/goccy/go-json v0.10.3
 	github.com/golangci/golangci-lint v1.60.3
 	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.6.0
 	github.com/hamba/avro/v2 v2.25.1
-	github.com/jackc/pgx/v5 v5.6.0
+	github.com/jackc/pgx/v5 v5.7.0
 	github.com/matryer/is v1.4.1
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/modern-go/reflect2 v1.0.2
@@ -19,9 +19,9 @@ require (
 	go.uber.org/goleak v1.3.0
 	go.uber.org/mock v0.4.0
 	golang.org/x/exp v0.0.0-20240823005443-9b4947da3948
-	golang.org/x/tools v0.24.0
+	golang.org/x/tools v0.25.0
 	google.golang.org/protobuf v1.34.3-0.20240816073751-94ecbc261689
-	modernc.org/sqlite v1.32.0
+	modernc.org/sqlite v1.33.0
 	mvdan.cc/gofumpt v0.7.0
 )
 
@@ -280,10 +280,10 @@ require (
 	go.uber.org/automaxprocs v1.5.3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	golang.org/x/crypto v0.26.0 // indirect
+	golang.org/x/crypto v0.27.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20240613232115-7f521ea00fb8 // indirect
 	golang.org/x/mod v0.21.0 // indirect
-	golang.org/x/net v0.28.0 // indirect
+	golang.org/x/net v0.29.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/term v0.24.0 // indirect
@@ -296,7 +296,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	honnef.co/go/tools v0.5.1 // indirect
 	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
-	modernc.org/libc v1.55.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect
 	modernc.org/memory v1.8.0 // indirect
 	modernc.org/strutil v1.2.0 // indirect
