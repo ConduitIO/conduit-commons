@@ -282,7 +282,7 @@ func (p *parameterParser) parseStructType(st *ast.StructType, f *ast.Field) (par
 	for _, f := range st.Fields.List {
 		fieldParams, err := p.parseField(f)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing field %q: %w", f.Names[0].Name, err)
+			return nil, fmt.Errorf("error parsing field %q: %w", p.getFieldNameOrUnknown(f), err)
 		}
 		if params == nil {
 			params = fieldParams
@@ -566,6 +566,14 @@ func (p *parameterParser) getFieldName(f *ast.Field) (string, error) {
 	default:
 		return "", fmt.Errorf("unexpected type: %T", f.Type)
 	}
+}
+
+func (p *parameterParser) getFieldNameOrUnknown(f *ast.Field) string {
+	name, err := p.getFieldName(f)
+	if err != nil {
+		return "<unknown>"
+	}
+	return name
 }
 
 func (p *parameterParser) getParamType(i *ast.Ident) config.ParameterType {
