@@ -59,7 +59,7 @@ var rabinTable = newRabinFingerprintTable()
 func newRabinFingerprintTable() [256]uint64 {
 	fpTable := [256]uint64{}
 	for i := 0; i < 256; i++ {
-		fp := uint64(i)
+		fp := uint64(i) //nolint:gosec // this won't overflow, it's between 0 and 256
 		for j := 0; j < 8; j++ {
 			fp = (fp >> 1) ^ (rabinEmpty & -(fp & 1))
 		}
