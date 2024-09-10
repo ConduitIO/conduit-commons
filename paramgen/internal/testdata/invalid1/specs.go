@@ -16,7 +16,11 @@ package example
 
 import "net/http"
 
-type SourceConfig struct {
+type GlobalConfig struct {
 	// We don't support types imported from packages outside this module.
 	InvalidType http.Client
+}
+
+type SourceConfig struct {
+	GlobalConfig
 }
