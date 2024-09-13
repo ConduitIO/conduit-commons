@@ -62,15 +62,18 @@ func TestMap_Delete(t *testing.T) {
 }
 
 func TestMap_Range(t *testing.T) {
-	is := is.New(t)
 	m := NewMap[string, int]()
+
+	want := map[string]int{"foo": 1, "bar": 2}
 
 	m.Set("foo", 1)
 	m.Set("bar", 2)
 
 	t.Run("All", func(t *testing.T) {
+		is := is.New(t)
 		count := 0
 		m.Range(func(key string, value int) bool {
+			is.Equal(value, want[key])
 			count++
 			return true
 		})
@@ -78,8 +81,10 @@ func TestMap_Range(t *testing.T) {
 	})
 
 	t.Run("EarlyExit", func(t *testing.T) {
-		count := 1
+		is := is.New(t)
+		count := 0
 		m.Range(func(key string, value int) bool {
+			is.Equal(value, want[key])
 			count++
 			return false
 		})
