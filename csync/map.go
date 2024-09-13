@@ -14,7 +14,10 @@
 
 package csync
 
-import "sync"
+import (
+	"iter"
+	"sync"
+)
 
 // Map is a thread-safe map.
 type Map[K comparable, T any] struct {
@@ -49,17 +52,6 @@ func (m *Map[K, T]) Delete(key K) {
 	m.lock.Lock()
 	delete(m.m, key)
 	m.lock.Unlock()
-}
-
-// Range calls f sequentially for each key and value present in the map.
-func (m *Map[K, T]) Range(f func(key K, value T) bool) {
-	m.lock.RLock()
-	for k, v := range m.m {
-		if !f(k, v) {
-			break
-		}
-	}
-	m.lock.RUnlock()
 }
 
 // Len returns the number of items in the map.
@@ -102,9 +94,10 @@ func (m *Map[K, T]) Clear() {
 func (m *Map[K, T]) Copy() *Map[K, T] {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
+
 	newMap := NewMap[K, T]()
 	for k, v := range m.m {
-		newMap.Set(k, v)
+		newMap.m[k] = v
 	}
 	return newMap
 }
@@ -113,12 +106,36 @@ func (m *Map[K, T]) Copy() *Map[K, T] {
 func (m *Map[K, T]) Merge(other *Map[K, T]) {
 	other.lock.RLock()
 	defer other.lock.RUnlock()
+
+	m.lock.Lock()
+	defer m.lock.Unlock()
+
 	for k, v := range other.m {
-		m.Set(k, v)
+		m.m[k] = v
 	}
 }
 
 // ToGoMap returns a copy of the map as a Go map.
 func (m *Map[K, T]) ToGoMap() map[K]T {
 	return m.Copy().m
+}
+
+// All returns an iterator over the map's key-value pairs. This can be used to
+// iterate over the map using a for-range loop.
+//
+// Example:
+//
+//	for key, value := range m.All() {
+//	    fmt.Println(key, value)
+//	}
+func (m *Map[K, T]) All() iter.Seq2[K, T] {
+	return func(yield func(K, T) bool) {
+		m.lock.RLock()
+		defer m.lock.RUnlock()
+		for k, v := range m.m {
+			if !yield(k, v) {
+				return
+			}
+		}
+	}
 }

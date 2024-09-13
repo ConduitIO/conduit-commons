@@ -61,35 +61,19 @@ func TestMap_Delete(t *testing.T) {
 	is.True(!ok)
 }
 
-func TestMap_Range(t *testing.T) {
+func TestMap_All(t *testing.T) {
+	is := is.New(t)
 	m := NewMap[string, int]()
-
-	want := map[string]int{"foo": 1, "bar": 2}
 
 	m.Set("foo", 1)
 	m.Set("bar", 2)
 
-	t.Run("All", func(t *testing.T) {
-		is := is.New(t)
-		count := 0
-		m.Range(func(key string, value int) bool {
-			is.Equal(value, want[key])
-			count++
-			return true
-		})
-		is.Equal(count, 2)
-	})
+	got := make(map[string]int)
+	for key, value := range m.All() {
+		got[key] = value
+	}
 
-	t.Run("EarlyExit", func(t *testing.T) {
-		is := is.New(t)
-		count := 0
-		m.Range(func(key string, value int) bool {
-			is.Equal(value, want[key])
-			count++
-			return false
-		})
-		is.Equal(count, 1)
-	})
+	is.Equal(got, map[string]int{"foo": 1, "bar": 2})
 }
 
 func TestMap_Len(t *testing.T) {
