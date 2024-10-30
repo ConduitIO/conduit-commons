@@ -10,9 +10,11 @@ import (
 const (
 	ConfigFoo                 = "foo"
 	ConfigMyBool              = "myBool"
+	ConfigMyBoolPtr           = "myBoolPtr"
 	ConfigMyByte              = "myByte"
 	ConfigMyDurSlice          = "myDurSlice"
 	ConfigMyDuration          = "myDuration"
+	ConfigMyDurationPtr       = "myDurationPtr"
 	ConfigMyFloat32           = "myFloat32"
 	ConfigMyFloat64           = "myFloat64"
 	ConfigMyFloatSlice        = "myFloatSlice"
@@ -50,6 +52,12 @@ func (Config) Parameters() map[string]config.Parameter {
 			Type:        config.ParameterTypeBool,
 			Validations: []config.Validation{},
 		},
+		ConfigMyBoolPtr: {
+			Default:     "",
+			Description: "",
+			Type:        config.ParameterTypeBool,
+			Validations: []config.Validation{},
+		},
 		ConfigMyByte: {
 			Default:     "",
 			Description: "",
@@ -63,6 +71,12 @@ func (Config) Parameters() map[string]config.Parameter {
 			Validations: []config.Validation{},
 		},
 		ConfigMyDuration: {
+			Default:     "",
+			Description: "",
+			Type:        config.ParameterTypeDuration,
+			Validations: []config.Validation{},
+		},
+		ConfigMyDurationPtr: {
 			Default:     "",
 			Description: "",
 			Type:        config.ParameterTypeDuration,

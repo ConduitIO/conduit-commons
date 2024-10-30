@@ -10,9 +10,11 @@ import (
 const (
 	SourceConfigFoo                 = "foo"
 	SourceConfigMyBool              = "myBool"
+	SourceConfigMyBoolPtr           = "myBoolPtr"
 	SourceConfigMyByte              = "myByte"
 	SourceConfigMyDurSlice          = "myDurSlice"
 	SourceConfigMyDuration          = "myDuration"
+	SourceConfigMyDurationPtr       = "myDurationPtr"
 	SourceConfigMyFloat32           = "myFloat32"
 	SourceConfigMyFloat64           = "myFloat64"
 	SourceConfigMyFloatSlice        = "myFloatSlice"
@@ -50,6 +52,12 @@ func (SourceConfig) Parameters() map[string]config.Parameter {
 			Type:        config.ParameterTypeBool,
 			Validations: []config.Validation{},
 		},
+		SourceConfigMyBoolPtr: {
+			Default:     "",
+			Description: "",
+			Type:        config.ParameterTypeBool,
+			Validations: []config.Validation{},
+		},
 		SourceConfigMyByte: {
 			Default:     "",
 			Description: "",
@@ -63,6 +71,12 @@ func (SourceConfig) Parameters() map[string]config.Parameter {
 			Validations: []config.Validation{},
 		},
 		SourceConfigMyDuration: {
+			Default:     "",
+			Description: "",
+			Type:        config.ParameterTypeDuration,
+			Validations: []config.Validation{},
+		},
+		SourceConfigMyDurationPtr: {
 			Default:     "",
 			Description: "",
 			Type:        config.ParameterTypeDuration,

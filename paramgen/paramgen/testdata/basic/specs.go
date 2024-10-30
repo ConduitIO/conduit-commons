@@ -61,6 +61,9 @@ type SourceConfig struct {
 	MyStringMap map[string]string
 	MyStructMap map[string]structMapVal
 
+	MyBoolPtr     *bool
+	MyDurationPtr *time.Duration
+
 	// this field is ignored because it is not exported
 	ignoreThis http.Client
 }

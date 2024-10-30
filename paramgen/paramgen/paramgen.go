@@ -319,30 +319,37 @@ func (p *parameterParser) parseField(f *ast.Field) (params map[string]config.Par
 		return nil, nil //nolint:nilnil // ignore unexported fields
 	}
 
-	switch v := f.Type.(type) {
-	case *ast.Ident:
-		// identifier (builtin type or type in same package)
-		return p.parseIdent(v, f)
-	case *ast.StructType:
-		// nested type
-		return p.parseStructType(v, f)
-	case *ast.SelectorExpr:
-		return p.parseSelectorExpr(v, f)
-	case *ast.MapType:
-		return p.parseMapType(v, f)
-	case *ast.ArrayType:
-		strType := fmt.Sprintf("%s", v.Elt)
-		if !p.isBuiltinType(strType) && !strings.Contains(strType, "time Duration") {
-			return nil, fmt.Errorf("unsupported slice type: %s", strType)
-		}
+	expr := f.Type
+	for {
+		switch v := expr.(type) {
+		case *ast.StarExpr:
+			// dereference pointer
+			expr = v.X
+			continue
+		case *ast.Ident:
+			// identifier (builtin type or type in same package)
+			return p.parseIdent(v, f)
+		case *ast.StructType:
+			// nested type
+			return p.parseStructType(v, f)
+		case *ast.SelectorExpr:
+			return p.parseSelectorExpr(v, f)
+		case *ast.MapType:
+			return p.parseMapType(v, f)
+		case *ast.ArrayType:
+			strType := fmt.Sprintf("%s", v.Elt)
+			if !p.isBuiltinType(strType) && !strings.Contains(strType, "time Duration") {
+				return nil, fmt.Errorf("unsupported slice type: %s", strType)
+			}
 
-		name, param, err := p.parseSingleParameter(f, config.ParameterTypeString)
-		if err != nil {
-			return nil, err
+			name, param, err := p.parseSingleParameter(f, config.ParameterTypeString)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]config.Parameter{name: param}, nil
+		default:
+			return nil, fmt.Errorf("unknown type: %T", f.Type)
 		}
-		return map[string]config.Parameter{name: param}, nil
-	default:
-		return nil, fmt.Errorf("unknown type: %T", f.Type)
 	}
 }
 
