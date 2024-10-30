@@ -23,7 +23,7 @@ import (
 	"github.com/matryer/is"
 )
 
-func TestParseSpecificationSuccess(t *testing.T) {
+func TestParseParametersSuccess(t *testing.T) {
 	testCases := []struct {
 		path string
 		name string
@@ -170,7 +170,7 @@ func TestParseSpecificationSuccess(t *testing.T) {
 	}
 }
 
-func TestParseSpecificationFail(t *testing.T) {
+func TestParseParametersFail(t *testing.T) {
 	testCases := []struct {
 		path    string
 		name    string
@@ -178,7 +178,7 @@ func TestParseSpecificationFail(t *testing.T) {
 	}{{
 		path:    "./testdata/invalid1",
 		name:    "SourceConfig",
-		wantErr: errors.New("we do not support parameters from package net/http (please use builtin types or time.Duration)"),
+		wantErr: errors.New("unexpected type: *ast.InterfaceType"),
 	}, {
 		path:    "./testdata/invalid2",
 		name:    "SourceConfig",

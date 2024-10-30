@@ -21,6 +21,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"io/fs"
 	"os/exec"
 	"reflect"
@@ -115,31 +116,34 @@ func parsePackage(path string) (*ast.Package, error) {
 	filterTests := func(info fs.FileInfo) bool {
 		return !strings.HasSuffix(info.Name(), "_test.go")
 	}
-	pkgs, err := parser.ParseDir(fset, path, filterTests, parser.ParseComments)
+	pkgs, err := parser.ParseDir(fset, path, filterTests, parser.ParseComments|parser.SkipObjectResolution)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't parse directory %s: %w", path, err)
 	}
-	// Make sure they are all in one package.
-	if len(pkgs) == 0 {
-		return nil, fmt.Errorf("no source-code package in directory %s", path)
-	}
-	// Ignore files with go:build constraint set to "tools" (common pattern in
-	// Conduit connectors).
 	for pkgName, pkg := range pkgs {
+		// Ignore files with go:build constraint set to "tools" (common pattern in
+		// Conduit connectors).
 		maps.DeleteFunc(pkg.Files, func(_ string, f *ast.File) bool {
 			return hasBuildConstraint(f, "tools")
 		})
-		if len(pkg.Files) == 0 {
+		// Remove empty packages or the main package (can't be imported).
+		if len(pkg.Files) == 0 || pkgName == "main" {
 			delete(pkgs, pkgName)
 		}
 	}
-	if len(pkgs) > 1 {
+
+	// Make sure there is only 1 package.
+	switch len(pkgs) {
+	case 0:
+		return nil, fmt.Errorf("no source-code package in directory %s", path)
+	case 1:
+		for _, pkg := range pkgs {
+			return pkg, nil
+		}
+		panic("unreachable")
+	default:
 		return nil, fmt.Errorf("multiple packages %v in directory %s", maps.Keys(pkgs), path)
 	}
-	for _, v := range pkgs {
-		return v, nil // return first package
-	}
-	panic("unreachable")
 }
 
 // hasBuildConstraint is a very naive way to check if a file has a build
@@ -428,17 +432,21 @@ func (p *parameterParser) findPackage(importPath string) (*ast.Package, error) {
 	// first cleanup string
 	importPath = strings.Trim(importPath, `"`)
 
-	if !strings.HasPrefix(importPath, p.mod.Path) {
-		// we only allow types declared in the same module
-		return nil, fmt.Errorf("we do not support parameters from package %v (please use builtin types or time.Duration)", importPath)
-	}
-
 	if pkg, ok := p.imports[importPath]; ok {
 		// it's cached already
 		return pkg, nil
 	}
 
 	pkgDir := p.mod.Dir + strings.TrimPrefix(importPath, p.mod.Path)
+	if !strings.HasPrefix(importPath, p.mod.Path) {
+		// Import path is not part of the module, we need to find the package path
+		var err error
+		pkgDir, err = p.packageToPath(importPath)
+		if err != nil {
+			return nil, fmt.Errorf("could not get package path for %q: %w", importPath, err)
+		}
+	}
+
 	pkg, err := parsePackage(pkgDir)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse package dir %q: %w", pkgDir, err)
@@ -714,4 +722,34 @@ func (p *parameterParser) parseValidation(str string) (config.Validation, error)
 	default:
 		return nil, fmt.Errorf("invalid value for tag validate: %s", str)
 	}
+}
+
+// packageToPath takes a package import path and returns the path to the directory
+// of that package.
+func (p *parameterParser) packageToPath(pkg string) (string, error) {
+	cmd := exec.Command("go", "list", "-f", "{{.Dir}}", pkg)
+	cmd.Dir = p.mod.Dir
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("error piping stdout of go list command: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("error piping stderr of go list command: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("error starting go list command: %w", err)
+	}
+	path, err := io.ReadAll(stdout)
+	if err != nil {
+		return "", fmt.Errorf("error reading stdout of go list command: %w", err)
+	}
+	errMsg, err := io.ReadAll(stderr)
+	if err != nil {
+		return "", fmt.Errorf("error reading stderr of go list command: %w", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		return "", fmt.Errorf("error running command %q (error message: %q): %w", cmd.String(), errMsg, err)
+	}
+	return strings.TrimRight(string(path), "\n"), nil
 }
