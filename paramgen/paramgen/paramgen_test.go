@@ -178,7 +178,7 @@ func TestParseParametersFail(t *testing.T) {
 	}{{
 		path:    "./testdata/invalid1",
 		name:    "SourceConfig",
-		wantErr: errors.New("unexpected type: *ast.InterfaceType"),
+		wantErr: errors.New("error parsing type spec for http.RoundTripper.Transport: interface types not supported"),
 	}, {
 		path:    "./testdata/invalid2",
 		name:    "SourceConfig",

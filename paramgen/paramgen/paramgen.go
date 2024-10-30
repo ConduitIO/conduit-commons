@@ -271,6 +271,8 @@ func (p *parameterParser) parseTypeSpec(ts *ast.TypeSpec, f *ast.Field) (params 
 		return p.parseIdent(v, f)
 	case *ast.MapType:
 		return p.parseMapType(v, f)
+	case *ast.InterfaceType:
+		return nil, fmt.Errorf("error parsing type spec for %s.%s.%s: interface types not supported", p.pkg.Name, ts.Name.Name, p.getFieldNameOrUnknown(f))
 	default:
 		return nil, fmt.Errorf("unexpected type: %T", ts.Type)
 	}
