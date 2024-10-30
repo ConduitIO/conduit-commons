@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //nolint:err113,wrapcheck,staticcheck // we don't care about wrapping errors here, also ignore usage of ast.Package (deprecated)
-package internal
+package paramgen
 
 import (
 	"encoding/json"
