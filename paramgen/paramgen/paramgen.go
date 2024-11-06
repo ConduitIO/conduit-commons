@@ -210,7 +210,7 @@ func (p *parameterParser) Parse(structType *ast.StructType) (map[string]config.P
 
 func (p *parameterParser) parseIdent(ident *ast.Ident, field *ast.Field) (params map[string]config.Parameter, err error) {
 	if field != nil && p.shouldSkipField(field) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // ignore this validation
 	}
 
 	defer func() {
@@ -261,7 +261,7 @@ func (p *parameterParser) parseIdent(ident *ast.Ident, field *ast.Field) (params
 
 func (p *parameterParser) parseTypeSpec(ts *ast.TypeSpec, f *ast.Field) (params map[string]config.Parameter, err error) {
 	if f != nil && p.shouldSkipField(f) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // ignore this validation
 	}
 
 	defer func() {
@@ -288,7 +288,7 @@ func (p *parameterParser) parseTypeSpec(ts *ast.TypeSpec, f *ast.Field) (params 
 
 func (p *parameterParser) parseStructType(st *ast.StructType, f *ast.Field) (params map[string]config.Parameter, err error) {
 	if f != nil && p.shouldSkipField(f) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // ignore this validation
 	}
 
 	defer func() {
@@ -322,7 +322,7 @@ func (p *parameterParser) parseStructType(st *ast.StructType, f *ast.Field) (par
 
 func (p *parameterParser) parseField(f *ast.Field) (params map[string]config.Parameter, err error) {
 	if f != nil && p.shouldSkipField(f) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // ignore this validation
 	}
 
 	defer func() {
@@ -371,7 +371,7 @@ func (p *parameterParser) parseField(f *ast.Field) (params map[string]config.Par
 
 func (p *parameterParser) parseMapType(mt *ast.MapType, f *ast.Field) (params map[string]config.Parameter, err error) {
 	if f != nil && p.shouldSkipField(f) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // ignore this validation
 	}
 
 	if fmt.Sprintf("%s", mt.Key) != "string" {
@@ -412,7 +412,7 @@ func (p *parameterParser) parseMapType(mt *ast.MapType, f *ast.Field) (params ma
 
 func (p *parameterParser) parseSelectorExpr(se *ast.SelectorExpr, f *ast.Field) (params map[string]config.Parameter, err error) {
 	if f != nil && p.shouldSkipField(f) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // ignore this validation
 	}
 
 	defer func() {

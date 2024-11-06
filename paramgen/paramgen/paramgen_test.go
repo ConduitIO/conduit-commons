@@ -79,6 +79,8 @@ func TestParseParametersSuccess(t *testing.T) {
 				"myStringMap.*":          {Type: config.ParameterTypeString},
 				"myStructMap.*.myInt":    {Type: config.ParameterTypeInt},
 				"myStructMap.*.myString": {Type: config.ParameterTypeString},
+				"myBoolPtr":              {Type: config.ParameterTypeBool},
+				"myDurationPtr":          {Type: config.ParameterTypeDuration},
 			},
 		},
 		{

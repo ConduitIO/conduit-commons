@@ -64,6 +64,9 @@ type SourceConfig struct {
 	MyBoolPtr     *bool
 	MyDurationPtr *time.Duration
 
+	// this field is ignored because it contains the json tag "-"
+	IgnoredField bool `json:"-"`
+
 	// this field is ignored because it is not exported
 	ignoreThis http.Client
 }
