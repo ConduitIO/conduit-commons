@@ -209,6 +209,10 @@ func (p *parameterParser) Parse(structType *ast.StructType) (map[string]config.P
 }
 
 func (p *parameterParser) parseIdent(ident *ast.Ident, field *ast.Field) (params map[string]config.Parameter, err error) {
+	if field != nil && p.shouldSkipField(field) {
+		return nil, nil
+	}
+
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("[parseIdent] %w", err)
@@ -256,6 +260,10 @@ func (p *parameterParser) parseIdent(ident *ast.Ident, field *ast.Field) (params
 }
 
 func (p *parameterParser) parseTypeSpec(ts *ast.TypeSpec, f *ast.Field) (params map[string]config.Parameter, err error) {
+	if f != nil && p.shouldSkipField(f) {
+		return nil, nil
+	}
+
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("[parseTypeSpec] %w", err)
@@ -279,6 +287,10 @@ func (p *parameterParser) parseTypeSpec(ts *ast.TypeSpec, f *ast.Field) (params 
 }
 
 func (p *parameterParser) parseStructType(st *ast.StructType, f *ast.Field) (params map[string]config.Parameter, err error) {
+	if f != nil && p.shouldSkipField(f) {
+		return nil, nil
+	}
+
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("[parseStructType] %w", err)
@@ -309,6 +321,10 @@ func (p *parameterParser) parseStructType(st *ast.StructType, f *ast.Field) (par
 }
 
 func (p *parameterParser) parseField(f *ast.Field) (params map[string]config.Parameter, err error) {
+	if f != nil && p.shouldSkipField(f) {
+		return nil, nil
+	}
+
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("[parseField] %w", err)
@@ -354,6 +370,10 @@ func (p *parameterParser) parseField(f *ast.Field) (params map[string]config.Par
 }
 
 func (p *parameterParser) parseMapType(mt *ast.MapType, f *ast.Field) (params map[string]config.Parameter, err error) {
+	if f != nil && p.shouldSkipField(f) {
+		return nil, nil
+	}
+
 	if fmt.Sprintf("%s", mt.Key) != "string" {
 		return nil, fmt.Errorf("unsupported map key type: %s", mt.Key)
 	}
@@ -391,6 +411,10 @@ func (p *parameterParser) parseMapType(mt *ast.MapType, f *ast.Field) (params ma
 }
 
 func (p *parameterParser) parseSelectorExpr(se *ast.SelectorExpr, f *ast.Field) (params map[string]config.Parameter, err error) {
+	if f != nil && p.shouldSkipField(f) {
+		return nil, nil
+	}
+
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("[parseSelectorExpr] %w", err)
@@ -529,6 +553,11 @@ func (p *parameterParser) attachPrefix(f *ast.Field, params map[string]config.Pa
 		prefixedParams[prefix+fieldSeparator+k] = v
 	}
 	return prefixedParams
+}
+
+func (p *parameterParser) shouldSkipField(f *ast.Field) bool {
+	val := p.getTag(f.Tag, tagParamName)
+	return val == "-"
 }
 
 func (p *parameterParser) isBuiltinType(name string) bool {
