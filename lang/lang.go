@@ -14,6 +14,22 @@
 
 package lang
 
+// Ptr returns a pointer to the value passed in.
 func Ptr[T any](t T) *T {
 	return &t
+}
+
+// ValOrZero returns the value of the pointer passed in or the zero value of the
+// type if the pointer is nil.
+func ValOrZero[T any](t *T) T {
+	if t == nil {
+		return Zero[T]()
+	}
+	return *t
+}
+
+// Zero returns the zero value of the type passed in.
+func Zero[T any]() T {
+	var t T
+	return t
 }

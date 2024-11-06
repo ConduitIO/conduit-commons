@@ -610,7 +610,7 @@ func (p *parameterParser) getParamType(i *ast.Ident) config.ParameterType {
 // lowercase letter. If the string starts with multiple uppercase letters, all
 // but the last character in the sequence will be converted into lowercase
 // letters (e.g. HTTPRequest -> httpRequest).
-func (p *parameterParser) formatFieldName(name string) string {
+func (*parameterParser) formatFieldName(name string) string {
 	if name == "" {
 		return ""
 	}
@@ -636,7 +636,7 @@ func (p *parameterParser) formatFieldName(name string) string {
 	return newName
 }
 
-func (p *parameterParser) formatFieldComment(f *ast.Field) string {
+func (*parameterParser) formatFieldComment(f *ast.Field) string {
 	doc := f.Doc
 	if doc == nil {
 		// fallback to line comment
@@ -661,7 +661,7 @@ func (p *parameterParser) formatFieldComment(f *ast.Field) string {
 	return c
 }
 
-func (p *parameterParser) getTag(lit *ast.BasicLit, tag string) string {
+func (*parameterParser) getTag(lit *ast.BasicLit, tag string) string {
 	if lit == nil {
 		return ""
 	}
@@ -688,7 +688,7 @@ func (p *parameterParser) parseValidateTag(tag string) ([]config.Validation, err
 	return validations, nil
 }
 
-func (p *parameterParser) parseValidation(str string) (config.Validation, error) {
+func (*parameterParser) parseValidation(str string) (config.Validation, error) {
 	if str == validationRequired {
 		return config.ValidationRequired{}, nil
 	}
