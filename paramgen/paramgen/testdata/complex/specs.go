@@ -16,6 +16,13 @@ package example
 
 import "time"
 
+// DestinationConfig is ignored in tests, they only operate on SourceConfig.
+type DestinationConfig struct {
+	// GlobalConfig parameters should be nested under "global". This comment
+	// should be ignored.
+	Global GlobalConfig `json:"global"`
+}
+
 type SourceConfig struct {
 	// GlobalConfig parameters should be nested under "global". This comment
 	// should be ignored.

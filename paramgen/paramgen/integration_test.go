@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package paramgen
 
 import (
 	"os"
@@ -39,6 +39,10 @@ func TestIntegration(t *testing.T) {
 		havePath:   "./testdata/tags",
 		structName: "Config",
 		wantPath:   "./testdata/tags/want.go",
+	}, {
+		havePath:   "./testdata/dependencies",
+		structName: "Config",
+		wantPath:   "./testdata/dependencies/want.go",
 	}}
 
 	for _, tc := range testCases {
