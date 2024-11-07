@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package paramgen
 
 import (
 	"errors"
@@ -23,7 +23,7 @@ import (
 	"github.com/matryer/is"
 )
 
-func TestParseSpecificationSuccess(t *testing.T) {
+func TestParseParametersSuccess(t *testing.T) {
 	testCases := []struct {
 		path string
 		name string
@@ -79,6 +79,8 @@ func TestParseSpecificationSuccess(t *testing.T) {
 				"myStringMap.*":          {Type: config.ParameterTypeString},
 				"myStructMap.*.myInt":    {Type: config.ParameterTypeInt},
 				"myStructMap.*.myString": {Type: config.ParameterTypeString},
+				"myBoolPtr":              {Type: config.ParameterTypeBool},
+				"myDurationPtr":          {Type: config.ParameterTypeDuration},
 			},
 		},
 		{
@@ -170,7 +172,7 @@ func TestParseSpecificationSuccess(t *testing.T) {
 	}
 }
 
-func TestParseSpecificationFail(t *testing.T) {
+func TestParseParametersFail(t *testing.T) {
 	testCases := []struct {
 		path    string
 		name    string
@@ -178,7 +180,7 @@ func TestParseSpecificationFail(t *testing.T) {
 	}{{
 		path:    "./testdata/invalid1",
 		name:    "SourceConfig",
-		wantErr: errors.New("we do not support parameters from package net/http (please use builtin types or time.Duration)"),
+		wantErr: errors.New("error parsing type spec for http.RoundTripper.Transport: interface types not supported"),
 	}, {
 		path:    "./testdata/invalid2",
 		name:    "SourceConfig",

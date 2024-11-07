@@ -21,7 +21,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/conduitio/conduit-commons/paramgen/internal"
+	"github.com/conduitio/conduit-commons/paramgen/paramgen"
 )
 
 func main() {
@@ -32,12 +32,12 @@ func main() {
 	args := parseFlags()
 
 	// parse the sdk parameters
-	params, pkg, err := internal.ParseParameters(args.path, args.structName)
+	params, pkg, err := paramgen.ParseParameters(args.path, args.structName)
 	if err != nil {
 		log.Fatalf("error: failed to parse parameters: %v", err)
 	}
 
-	code := internal.GenerateCode(params, pkg, args.structName)
+	code := paramgen.GenerateCode(params, pkg, args.structName)
 
 	path := strings.TrimSuffix(args.path, "/") + "/" + args.output
 	err = os.WriteFile(path, []byte(code), 0o600)

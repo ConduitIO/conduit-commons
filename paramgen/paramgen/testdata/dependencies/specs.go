@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// go:build ignoreBuildTags
-
-package example
+package dependencies
 
 import (
-	"example.com/test/internal"
+	example "example.com/test"
 )
 
-// GlobalConfig is defined in another file. It is defined with an underlying
-// type that is in another package (should still work).
-type GlobalConfig internal.GlobalConfig
+// Config is a reusable config struct used in the source and destination
+type Config struct {
+	example.SourceConfig
+}
