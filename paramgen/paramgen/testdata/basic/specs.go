@@ -35,8 +35,8 @@ type SourceConfig struct {
 	MyString string
 	MyBool   bool
 
-	MyInt    int `validate:"lt=100, gt=0"`
-	MyUint   uint
+	MyInt    int  `validate:"lt=100, gt=0"`
+	MyUint   uint `validate:"lte=101, gte=1"`
 	MyInt8   int8
 	MyUint8  uint8
 	MyInt16  int16

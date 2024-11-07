@@ -173,7 +173,10 @@ func (SourceConfig) Parameters() map[string]config.Parameter {
 			Default:     "",
 			Description: "",
 			Type:        config.ParameterTypeInt,
-			Validations: []config.Validation{},
+			Validations: []config.Validation{
+				config.ValidationLessThanOrEqual{V: 101},
+				config.ValidationGreaterThanOrEqual{V: 1},
+			},
 		},
 		SourceConfigMyUint16: {
 			Default:     "",

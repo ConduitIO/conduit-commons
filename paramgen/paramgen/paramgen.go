@@ -39,14 +39,18 @@ const (
 	tagParamDefault  = "default"
 	tagParamValidate = "validate"
 
-	validationRequired    = "required"
-	validationLT          = "lt"
-	validationLessThan    = "less-than"
-	validationGT          = "gt"
-	validationGreaterThan = "greater-than"
-	validationInclusion   = "inclusion"
-	validationExclusion   = "exclusion"
-	validationRegex       = "regex"
+	validationRequired           = "required"
+	validationLT                 = "lt"
+	validationLessThan           = "less-than"
+	validationGT                 = "gt"
+	validationGreaterThan        = "greater-than"
+	validationLTE                = "lte"
+	validationLessThanOrEqual    = "less-than-or-equal"
+	validationGTE                = "gte"
+	validationGreaterThanOrEqual = "greater-than-or-equal"
+	validationInclusion          = "inclusion"
+	validationExclusion          = "exclusion"
+	validationRegex              = "regex"
 
 	tagSeparator      = ","
 	validateSeparator = "="
@@ -749,6 +753,18 @@ func (*parameterParser) parseValidation(str string) (config.Validation, error) {
 			return nil, err
 		}
 		return config.ValidationGreaterThan{V: val}, nil
+	case validationLTE, validationLessThanOrEqual:
+		val, err := strconv.ParseFloat(split[1], 64)
+		if err != nil {
+			return nil, err
+		}
+		return config.ValidationLessThanOrEqual{V: val}, nil
+	case validationGTE, validationGreaterThanOrEqual:
+		val, err := strconv.ParseFloat(split[1], 64)
+		if err != nil {
+			return nil, err
+		}
+		return config.ValidationGreaterThanOrEqual{V: val}, nil
 	case validationInclusion:
 		list := strings.Split(split[1], listSeparator)
 		return config.ValidationInclusion{List: list}, nil

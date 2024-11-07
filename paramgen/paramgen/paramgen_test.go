@@ -51,15 +51,17 @@ func TestParseParametersSuccess(t *testing.T) {
 				"myInt": {
 					Type: config.ParameterTypeInt,
 					Validations: []config.Validation{
-						config.ValidationLessThan{
-							V: 100,
-						},
-						config.ValidationGreaterThan{
-							V: 0,
-						},
+						config.ValidationLessThan{V: 100},
+						config.ValidationGreaterThan{V: 0},
 					},
 				},
-				"myUint":                 {Type: config.ParameterTypeInt},
+				"myUint": {
+					Type: config.ParameterTypeInt,
+					Validations: []config.Validation{
+						config.ValidationLessThanOrEqual{V: 101},
+						config.ValidationGreaterThanOrEqual{V: 1},
+					},
+				},
 				"myInt8":                 {Type: config.ParameterTypeInt},
 				"myUint8":                {Type: config.ParameterTypeInt},
 				"myInt16":                {Type: config.ParameterTypeInt},
