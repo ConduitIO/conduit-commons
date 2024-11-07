@@ -432,9 +432,9 @@ func (r unionResolver) resolveNameForType(v any, us *avro.UnionSchema) (string, 
 	return "", fmt.Errorf("can't resolve %v in union type %v: %w", names, us.String(), ErrSchemaValueMismatch)
 }
 
-func (r unionResolver) collectParentsForNullUnionPath(val any, nullUnionPath path) ([]map[string]any, error) {
+func (r unionResolver) collectParentsForNullUnionPath(val any, p path) ([]map[string]any, error) {
 	var parentMaps []map[string]any
-	err := traverseValue(val, nullUnionPath, true, func(v any) {
+	err := traverseValue(val, p, true, func(v any) {
 		switch v := v.(type) {
 		case map[string]any:
 			parentMaps = append(parentMaps, v)
