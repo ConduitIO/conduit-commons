@@ -226,8 +226,7 @@ func (r unionResolver) afterUnmarshalNullUnionSubstitutions(val any, substitutio
 
 		// nullUnionField is the actual field, i.e. the last leg in the path.
 		// nullUnionField is nil if the field is actually a key in a map.
-		// In that case, all the values in the map need to be checked,
-		// and potentially substituted.
+		// In that case, all the values in the map need to be checked and substituted.
 		// nullUnionField is not nil if it's a field within a record schema.
 		// In that case, we only substitute that field.
 		nullUnionField := nullUnionPath[len(nullUnionPath)-1].field
