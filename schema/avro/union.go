@@ -209,17 +209,7 @@ func (r unionResolver) afterUnmarshalArraySubstitutions(val any, substitutions [
 func (r unionResolver) afterUnmarshalNullUnionSubstitutions(val any, substitutions []substitution) ([]substitution, error) {
 	for _, nullUnionPath := range r.nullUnionPaths {
 		// first collect all parents that contain a value that is nullable
-		var parentMaps []map[string]any
-		err := traverseValue(val, nullUnionPath, true, func(v any) {
-			switch v := v.(type) {
-			case map[string]any:
-				parentMaps = append(parentMaps, v)
-			case *map[string]any:
-				parentMaps = append(parentMaps, *v)
-			case *opencdc.StructuredData:
-				parentMaps = append(parentMaps, *v)
-			}
-		})
+		parentMaps, err := r.collectParentsForNullUnionPath(val, nullUnionPath)
 		if err != nil {
 			return nil, err
 		}
@@ -233,7 +223,7 @@ func (r unionResolver) afterUnmarshalNullUnionSubstitutions(val any, substitutio
 			// nullUnionField is nil if the field represents a key in a map.
 			// In that case, all the values in the map need to be checked and substituted.
 			if nullUnionField == nil {
-				for key, _ := range parentMap {
+				for key := range parentMap {
 					sub, err := r.substitute(parentMap, key)
 					if err != nil {
 						return nil, err
@@ -440,6 +430,22 @@ func (r unionResolver) resolveNameForType(v any, us *avro.UnionSchema) (string, 
 		}
 	}
 	return "", fmt.Errorf("can't resolve %v in union type %v: %w", names, us.String(), ErrSchemaValueMismatch)
+}
+
+func (r unionResolver) collectParentsForNullUnionPath(val any, nullUnionPath path) ([]map[string]any, error) {
+	var parentMaps []map[string]any
+	err := traverseValue(val, nullUnionPath, true, func(v any) {
+		switch v := v.(type) {
+		case map[string]any:
+			parentMaps = append(parentMaps, v)
+		case *map[string]any:
+			parentMaps = append(parentMaps, *v)
+		case *opencdc.StructuredData:
+			parentMaps = append(parentMaps, *v)
+		}
+	})
+
+	return parentMaps, err
 }
 
 func isMapUnion(schema avro.Schema) bool {
