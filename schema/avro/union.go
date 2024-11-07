@@ -224,45 +224,71 @@ func (r unionResolver) afterUnmarshalNullUnionSubstitutions(val any, substitutio
 			return nil, err
 		}
 
-		// nullUnionField is the actual field, i.e. the last leg in the path.
-		// nullUnionField is nil if the field is actually a key in a map.
-		// In that case, all the values in the map need to be checked and substituted.
-		// nullUnionField is not nil if it's a field within a record schema.
-		// In that case, we only substitute that field.
+		// nullUnionField is the fields that needs to be substitured.
+		// It's the last leg in the path.
 		nullUnionField := nullUnionPath[len(nullUnionPath)-1].field
 
 		// Loop through collected parent maps and collect all substitutions.
-		for i, parentMap := range parentMaps {
-			for fieldName, avroVal := range parentMap {
-				if nullUnionField != nil && fieldName != nullUnionField.Name() {
-					continue
+		for _, parentMap := range parentMaps {
+			// nullUnionField is nil if the field represents a key in a map.
+			// In that case, all the values in the map need to be checked and substituted.
+			if nullUnionField == nil {
+				for key, _ := range parentMap {
+					sub, err := r.substitute(parentMap, key)
+					if err != nil {
+						return nil, err
+					}
+					// substitution not needed for this key, skip to next
+					if sub == nil {
+						continue
+					}
+					substitutions = append(substitutions, sub)
 				}
-				if avroVal == nil {
-					// don't change nil values
-					continue
-				}
-				vmap, ok := avroVal.(map[string]any)
-				if !ok {
-					// if the value is not a map, it's not a nil value
-					continue
-				}
-				if len(vmap) != 1 {
-					return nil, fmt.Errorf("expected single value encoded as a map, got %d elements: %w", len(vmap), ErrSchemaValueMismatch)
-				}
-
-				// this is a map with a single value, store the substitution
-				for _, actualVal := range vmap {
-					substitutions = append(substitutions, mapSubstitution{
-						m:   parentMaps[i],
-						key: fieldName,
-						val: actualVal,
-					})
-					break
-				}
+				continue
 			}
+			// nullUnionField is not nil if it's a field within a record schema.
+			// In that case, we only substitute that field.
+			sub, err := r.substitute(parentMap, nullUnionField.Name())
+			if err != nil {
+				return nil, err
+			}
+			// substitution not needed for this key, skip to next
+			if sub == nil {
+				continue
+			}
+			substitutions = append(substitutions, sub)
 		}
 	}
 	return substitutions, nil
+}
+
+func (r unionResolver) substitute(parentMap map[string]any, name string) (substitution, error) {
+	avroVal := parentMap[name]
+	if avroVal == nil {
+		// don't change nil values
+		return nil, nil
+	}
+	vmap, ok := avroVal.(map[string]any)
+	if !ok {
+		// if the value is not a map, it's not a nil value
+		return nil, nil
+	}
+	if len(vmap) != 1 {
+		return nil, fmt.Errorf("expected single value for %s encoded as a map, got %d elements: %w", name, len(vmap), ErrSchemaValueMismatch)
+	}
+
+	// this is a map with a single value, store the substitution
+	for _, actualVal := range vmap {
+		return mapSubstitution{
+			m:   parentMap,
+			key: name,
+			val: actualVal,
+		}, nil
+	}
+
+	// we can reach this line only if we didn't return
+	// the substitution from the loop above
+	panic("substitution not returned (this is a bug in the code)")
 }
 
 // BeforeMarshal traverses the value using the schema and finds all values that
