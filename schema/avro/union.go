@@ -233,7 +233,7 @@ func (r unionResolver) afterUnmarshalNullUnionSubstitutions(val any, substitutio
 					continue
 				}
 				if avroVal == nil {
-					// do no change nil values
+					// don't change nil values
 					continue
 				}
 				vmap, ok := avroVal.(map[string]any)
