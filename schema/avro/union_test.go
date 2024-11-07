@@ -23,6 +23,27 @@ import (
 	"github.com/matryer/is"
 )
 
+func TestSerde_MarshalUnmarshalNullableFields(t *testing.T) {
+	is := is.New(t)
+
+	sd := opencdc.StructuredData{
+		"appearance": map[string]interface{}{
+			"mode":  "dark",
+			"color": "purple",
+		},
+		"website": nil,
+	}
+	serde, err := SerdeForType(sd)
+	is.NoErr(err)
+
+	bytes, err := serde.Marshal(sd)
+	is.NoErr(err)
+
+	var structuredData opencdc.StructuredData
+	err = serde.Unmarshal(bytes, &structuredData)
+	is.NoErr(err)
+}
+
 func TestUnionResolver(t *testing.T) {
 	is := is.New(t)
 

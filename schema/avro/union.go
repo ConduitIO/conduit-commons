@@ -29,10 +29,15 @@ import (
 // NB: It currently supports union types nested in maps, but not nested in
 // slices. For example, hooks will not work for values like []any{[]any{"foo"}}.
 type unionResolver struct {
-	mapUnionPaths   []path
+	// mapUnionPaths are all the paths to map fields within a schema,
+	// where value types are union types
+	mapUnionPaths []path
+	// arrayUnionPaths are all the paths to array fields within a schema,
+	// where value types are union types
 	arrayUnionPaths []path
-	nullUnionPaths  []path
-	resolver        *avro.TypeResolver
+	// nullUnionPaths are all the paths to nullable fields within a schema.
+	nullUnionPaths []path
+	resolver       *avro.TypeResolver
 }
 
 // newUnionResolver takes a schema and extracts the paths to all maps and arrays
@@ -202,36 +207,36 @@ func (r unionResolver) afterUnmarshalArraySubstitutions(val any, substitutions [
 }
 
 func (r unionResolver) afterUnmarshalNullUnionSubstitutions(val any, substitutions []substitution) ([]substitution, error) {
-	for _, p := range r.nullUnionPaths {
-		// first collect all values that are nullable
-		var maps []map[string]any
-		err := traverseValue(val, p, true, func(v any) {
+	for _, nullUnionPath := range r.nullUnionPaths {
+		// first collect all parents that contain a value that is nullable
+		var parentMaps []map[string]any
+		err := traverseValue(val, nullUnionPath, true, func(v any) {
 			switch v := v.(type) {
 			case map[string]any:
-				maps = append(maps, v)
+				parentMaps = append(parentMaps, v)
 			case *map[string]any:
-				maps = append(maps, *v)
+				parentMaps = append(parentMaps, *v)
 			case *opencdc.StructuredData:
-				maps = append(maps, *v)
+				parentMaps = append(parentMaps, *v)
 			}
 		})
 		if err != nil {
 			return nil, err
 		}
 
-		// Loop through collected maps and collect all substitutions. These maps
-		// contain values encoded as maps with a single key:value pair, where
-		// key is the type name (e.g. {"int":1}). We want to replace all these
-		// maps with the actual value (e.g. 1).
-		// We don't replace them in the loop, because we want to make sure all
-		// maps actually contain only 1 value.
-		for i, mapUnion := range maps {
-			for k, v := range mapUnion {
-				if v == nil {
+		// nullableField is the actual field, i.e. the last leg in the path
+		nullableField := nullUnionPath[len(nullUnionPath)-1].field
+		// Loop through collected parent maps and collect all substitutions.
+		for i, parentMap := range parentMaps {
+			for fieldName, avroVal := range parentMap {
+				if nullableField != nil && fieldName != nullableField.Name() {
+					continue
+				}
+				if avroVal == nil {
 					// do no change nil values
 					continue
 				}
-				vmap, ok := v.(map[string]any)
+				vmap, ok := avroVal.(map[string]any)
 				if !ok {
 					// if the value is not a map, it's not a nil value
 					continue
@@ -243,8 +248,8 @@ func (r unionResolver) afterUnmarshalNullUnionSubstitutions(val any, substitutio
 				// this is a map with a single value, store the substitution
 				for _, actualVal := range vmap {
 					substitutions = append(substitutions, mapSubstitution{
-						m:   maps[i],
-						key: k,
+						m:   parentMaps[i],
+						key: fieldName,
 						val: actualVal,
 					})
 					break
@@ -453,8 +458,6 @@ func isNullUnion(schema avro.Schema) bool {
 		return false
 	}
 	for _, s := range s.Types() {
-		// at least one of the types in the union must be a map or array for this
-		// to count as a map with a union type
 		if s.Type() == avro.Null {
 			return true
 		}
