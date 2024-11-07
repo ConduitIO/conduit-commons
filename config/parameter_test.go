@@ -70,6 +70,8 @@ func TestParameters_MarshalJSON(t *testing.T) {
 				ValidationInclusion{List: []string{"1", "2", "3"}},
 				ValidationExclusion{List: []string{"4", "5", "6"}},
 				ValidationRegex{Regex: regexp.MustCompile("test-regex")},
+				ValidationGreaterThanOrEqual{V: 1.2},
+				ValidationLessThanOrEqual{V: 3.4},
 			},
 		},
 	}
@@ -145,6 +147,14 @@ func TestParameters_MarshalJSON(t *testing.T) {
       {
         "type": "regex",
         "value": "test-regex"
+      },
+      {
+        "type": "greater-than-or-equal",
+        "value": "1.2"
+      },
+      {
+        "type": "less-than-or-equal",
+        "value": "3.4"
       }
     ]
   }

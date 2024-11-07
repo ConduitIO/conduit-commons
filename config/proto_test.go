@@ -23,71 +23,6 @@ import (
 	"github.com/matryer/is"
 )
 
-func TestParameter_FromProto(t *testing.T) {
-	is := is.New(t)
-
-	have := &configv1.Parameter{
-		Description: "test-description",
-		Default:     "test-default",
-		Type:        configv1.Parameter_TYPE_STRING,
-		Validations: []*configv1.Validation{
-			{Type: configv1.Validation_TYPE_REQUIRED},
-			{Type: configv1.Validation_TYPE_GREATER_THAN, Value: "1.2"},
-			{Type: configv1.Validation_TYPE_LESS_THAN, Value: "3.4"},
-			{Type: configv1.Validation_TYPE_INCLUSION, Value: "1,2,3"},
-			{Type: configv1.Validation_TYPE_EXCLUSION, Value: "4,5,6"},
-			{Type: configv1.Validation_TYPE_REGEX, Value: "test-regex"},
-		},
-	}
-
-	want := Parameter{
-		Description: "test-description",
-		Default:     "test-default",
-		Type:        ParameterTypeString,
-		Validations: []Validation{
-			ValidationRequired{},
-			ValidationGreaterThan{V: 1.2},
-			ValidationLessThan{V: 3.4},
-			ValidationInclusion{List: []string{"1", "2", "3"}},
-			ValidationExclusion{List: []string{"4", "5", "6"}},
-			ValidationRegex{Regex: regexp.MustCompile("test-regex")},
-		},
-	}
-
-	var got Parameter
-	err := got.FromProto(have)
-	is.NoErr(err)
-	is.Equal(want, got)
-}
-
-func TestParameter_ToProto(t *testing.T) {
-	is := is.New(t)
-
-	have := Parameter{
-		Description: "test-description",
-		Default:     "test-default",
-		Type:        ParameterTypeString,
-		Validations: []Validation{
-			ValidationRequired{},
-			ValidationRegex{Regex: regexp.MustCompile("test-regex")},
-		},
-	}
-
-	want := &configv1.Parameter{
-		Description: "test-description",
-		Default:     "test-default",
-		Type:        configv1.Parameter_TYPE_STRING,
-		Validations: []*configv1.Validation{
-			{Type: configv1.Validation_TYPE_REQUIRED},
-			{Type: configv1.Validation_TYPE_REGEX, Value: "test-regex"},
-		},
-	}
-
-	got := &configv1.Parameter{}
-	have.ToProto(got)
-	is.Equal(want, got)
-}
-
 func TestParameter_ParameterTypes(t *testing.T) {
 	testCases := []struct {
 		protoType configv1.Parameter_Type
@@ -161,6 +96,14 @@ func TestParameter_Validation(t *testing.T) {
 		{
 			protoType: &configv1.Validation{Type: configv1.Validation_TYPE_REGEX, Value: "test-regex"},
 			goType:    ValidationRegex{Regex: regexp.MustCompile("test-regex")},
+		},
+		{
+			protoType: &configv1.Validation{Type: configv1.Validation_TYPE_GREATER_THAN_OR_EQUAL, Value: "1.2"},
+			goType:    ValidationGreaterThanOrEqual{V: 1.2},
+		},
+		{
+			protoType: &configv1.Validation{Type: configv1.Validation_TYPE_LESS_THAN_OR_EQUAL, Value: "3.4"},
+			goType:    ValidationLessThanOrEqual{V: 3.4},
 		},
 	}
 

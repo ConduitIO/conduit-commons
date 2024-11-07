@@ -43,6 +43,8 @@ func _() {
 	_ = cTypes[int(ValidationTypeInclusion)-int(configv1.Validation_TYPE_INCLUSION)]
 	_ = cTypes[int(ValidationTypeExclusion)-int(configv1.Validation_TYPE_EXCLUSION)]
 	_ = cTypes[int(ValidationTypeRegex)-int(configv1.Validation_TYPE_REGEX)]
+	_ = cTypes[int(ValidationTypeGreaterThanOrEqual)-int(configv1.Validation_TYPE_GREATER_THAN_OR_EQUAL)]
+	_ = cTypes[int(ValidationTypeLessThanOrEqual)-int(configv1.Validation_TYPE_LESS_THAN_OR_EQUAL)]
 }
 
 // -- From Proto To Parameter --------------------------------------------------
@@ -135,6 +137,18 @@ func validationFromProto(proto *configv1.Validation) (Validation, error) {
 			return nil, fmt.Errorf("error compiling regex: %w", err)
 		}
 		return ValidationRegex{Regex: regex}, nil
+	case configv1.Validation_TYPE_GREATER_THAN_OR_EQUAL:
+		v, err := strconv.ParseFloat(proto.Value, 64)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing greater than or equal value: %w", err)
+		}
+		return ValidationGreaterThanOrEqual{V: v}, nil
+	case configv1.Validation_TYPE_LESS_THAN_OR_EQUAL:
+		v, err := strconv.ParseFloat(proto.Value, 64)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing less than or equal value: %w", err)
+		}
+		return ValidationLessThanOrEqual{V: v}, nil
 	case configv1.Validation_TYPE_UNSPECIFIED:
 		fallthrough
 	default:

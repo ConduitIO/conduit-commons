@@ -14,11 +14,13 @@ func _() {
 	_ = x[ValidationTypeInclusion-4]
 	_ = x[ValidationTypeExclusion-5]
 	_ = x[ValidationTypeRegex-6]
+	_ = x[ValidationTypeGreaterThanOrEqual-7]
+	_ = x[ValidationTypeLessThanOrEqual-8]
 }
 
-const _ValidationType_name = "requiredgreater-thanless-thaninclusionexclusionregex"
+const _ValidationType_name = "requiredgreater-thanless-thaninclusionexclusionregexgreater-than-or-equalless-than-or-equal"
 
-var _ValidationType_index = [...]uint8{0, 8, 20, 29, 38, 47, 52}
+var _ValidationType_index = [...]uint8{0, 8, 20, 29, 38, 47, 52, 73, 91}
 
 func (i ValidationType) String() string {
 	i -= 1

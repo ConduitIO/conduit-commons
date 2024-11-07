@@ -36,12 +36,14 @@ type Validation interface {
 type ValidationType int64
 
 const (
-	ValidationTypeRequired    ValidationType = iota + 1 // required
-	ValidationTypeGreaterThan                           // greater-than
-	ValidationTypeLessThan                              // less-than
-	ValidationTypeInclusion                             // inclusion
-	ValidationTypeExclusion                             // exclusion
-	ValidationTypeRegex                                 // regex
+	ValidationTypeRequired           ValidationType = iota + 1 // required
+	ValidationTypeGreaterThan                                  // greater-than
+	ValidationTypeLessThan                                     // less-than
+	ValidationTypeInclusion                                    // inclusion
+	ValidationTypeExclusion                                    // exclusion
+	ValidationTypeRegex                                        // regex
+	ValidationTypeGreaterThanOrEqual                           // greater-than-or-equal
+	ValidationTypeLessThanOrEqual                              // less-than-or-equal
 )
 
 func (vt ValidationType) MarshalText() ([]byte, error) {
@@ -139,6 +141,44 @@ func (v ValidationRegex) Validate(value string) error {
 	return nil
 }
 func (v ValidationRegex) MarshalJSON() ([]byte, error) { return jsonMarshalValidation(v) }
+
+type ValidationGreaterThanOrEqual struct {
+	V float64
+}
+
+func (v ValidationGreaterThanOrEqual) Type() ValidationType { return ValidationTypeGreaterThanOrEqual }
+func (v ValidationGreaterThanOrEqual) Value() string        { return strconv.FormatFloat(v.V, 'f', -1, 64) }
+func (v ValidationGreaterThanOrEqual) Validate(value string) error {
+	val, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return fmt.Errorf("%q value should be a number: %w", value, ErrInvalidParameterValue)
+	}
+	if !(val >= v.V) {
+		formatted := strconv.FormatFloat(v.V, 'f', -1, 64)
+		return fmt.Errorf("%q should be greater than %s: %w", value, formatted, ErrGreaterThanOrEqualValidationFail)
+	}
+	return nil
+}
+func (v ValidationGreaterThanOrEqual) MarshalJSON() ([]byte, error) { return jsonMarshalValidation(v) }
+
+type ValidationLessThanOrEqual struct {
+	V float64
+}
+
+func (v ValidationLessThanOrEqual) Type() ValidationType { return ValidationTypeLessThanOrEqual }
+func (v ValidationLessThanOrEqual) Value() string        { return strconv.FormatFloat(v.V, 'f', -1, 64) }
+func (v ValidationLessThanOrEqual) Validate(value string) error {
+	val, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return fmt.Errorf("%q value should be a number: %w", value, ErrInvalidParameterValue)
+	}
+	if !(val <= v.V) {
+		formatted := strconv.FormatFloat(v.V, 'f', -1, 64)
+		return fmt.Errorf("%q should be less than %s: %w", value, formatted, ErrLessThanOrEqualValidationFail)
+	}
+	return nil
+}
+func (v ValidationLessThanOrEqual) MarshalJSON() ([]byte, error) { return jsonMarshalValidation(v) }
 
 func jsonMarshalValidation(v Validation) ([]byte, error) {
 	//nolint:wrapcheck // no need to wrap this error, this will be called by the JSON lib itself
