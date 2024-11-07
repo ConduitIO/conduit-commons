@@ -266,12 +266,12 @@ func (r unionResolver) substitute(parentMap map[string]any, name string) (substi
 	avroVal := parentMap[name]
 	if avroVal == nil {
 		// don't change nil values
-		return nil, nil
+		return nil, nil //nolint:nilnil // This is the expected behavior.
 	}
 	vmap, ok := avroVal.(map[string]any)
 	if !ok {
 		// if the value is not a map, it's not a nil value
-		return nil, nil
+		return nil, nil //nolint:nilnil // This is the expected behavior.
 	}
 	if len(vmap) != 1 {
 		return nil, fmt.Errorf("expected single value for %s encoded as a map, got %d elements: %w", name, len(vmap), ErrSchemaValueMismatch)
