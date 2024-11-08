@@ -25,10 +25,12 @@ import (
 )
 
 type (
-	// path represents a path from the root to a certain type in an avro schema.
+	// path represents a path from the root to a certain field/type in an Avro schema.
 	path []leg
 	// leg is a single leg of a path.
 	leg struct {
+		// schema is the schema of the object that contains the below field
+		// (i.e. it's not the schema of the field itself).
 		schema avro.Schema
 		field  *avro.Field
 	}
