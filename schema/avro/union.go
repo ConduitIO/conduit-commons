@@ -252,6 +252,11 @@ func (r unionResolver) afterUnmarshalNullUnionSubstitutions(val any, substitutio
 	return substitutions, nil
 }
 
+// substitute substitutes maps inserted by hamba/avro's Unmarshal() function
+// with actual values. The input map (return by hamba/avro's Unmarshal())
+// contain values encoded as maps with a single key:value pair, where
+// key is the type name (e.g. {"int":1}). We want to replace all these
+// maps with the actual value (e.g. 1).
 func (r unionResolver) substitute(parentMap map[string]any, name string) (substitution, error) {
 	avroVal := parentMap[name]
 	if avroVal == nil {
