@@ -4,7 +4,7 @@ go 1.23
 
 require (
 	github.com/bufbuild/buf v1.46.0
-	github.com/dgraph-io/badger/v4 v4.3.1
+	github.com/dgraph-io/badger/v4 v4.4.0
 	github.com/goccy/go-json v0.10.3
 	github.com/golangci/golangci-lint v1.62.0
 	github.com/google/go-cmp v0.6.0
@@ -90,7 +90,7 @@ require (
 	github.com/daixiang0/gci v0.13.5 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/denis-tingaikin/go-header v0.5.0 // indirect
-	github.com/dgraph-io/ristretto v1.0.0 // indirect
+	github.com/dgraph-io/ristretto/v2 v2.0.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/cli v27.3.1+incompatible // indirect
 	github.com/docker/distribution v2.8.3+incompatible // indirect
