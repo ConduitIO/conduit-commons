@@ -5,7 +5,7 @@ go 1.23
 require (
 	github.com/bufbuild/buf v1.47.2
 	github.com/dgraph-io/badger/v4 v4.5.0
-	github.com/goccy/go-json v0.10.3
+	github.com/goccy/go-json v0.10.4
 	github.com/golangci/golangci-lint v1.62.2
 	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.6.0
