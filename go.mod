@@ -20,7 +20,7 @@ require (
 	go.uber.org/mock v0.5.0
 	golang.org/x/exp v0.0.0-20241217172543-b2144cdd0a67
 	golang.org/x/tools v0.29.0
-	google.golang.org/protobuf v1.36.1
+	google.golang.org/protobuf v1.36.2
 	modernc.org/sqlite v1.34.4
 	mvdan.cc/gofumpt v0.7.0
 )
