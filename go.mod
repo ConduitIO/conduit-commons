@@ -21,7 +21,7 @@ require (
 	golang.org/x/exp v0.0.0-20250103183323-7d7fa50e5329
 	golang.org/x/tools v0.29.0
 	google.golang.org/protobuf v1.36.3
-	modernc.org/sqlite v1.34.4
+	modernc.org/sqlite v1.34.5
 	mvdan.cc/gofumpt v0.7.0
 )
 
@@ -310,12 +310,9 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	honnef.co/go/tools v0.5.1 // indirect
-	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
 	modernc.org/libc v1.55.3 // indirect
 	modernc.org/mathutil v1.6.0 // indirect
 	modernc.org/memory v1.8.0 // indirect
-	modernc.org/strutil v1.2.0 // indirect
-	modernc.org/token v1.1.0 // indirect
 	mvdan.cc/unparam v0.0.0-20240528143540-8a5130ca722f // indirect
 	pluginrpc.com/pluginrpc v0.5.0 // indirect
 )
