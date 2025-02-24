@@ -1,6 +1,7 @@
 module github.com/conduitio/conduit-commons
 
-go 1.23
+go 1.23.0
+
 require (
 	github.com/bufbuild/buf v1.50.0
 	github.com/dgraph-io/badger/v4 v4.5.1
