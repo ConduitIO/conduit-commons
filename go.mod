@@ -4,7 +4,7 @@ go 1.23.0
 
 require (
 	github.com/bufbuild/buf v1.50.0
-	github.com/dgraph-io/badger/v4 v4.5.1
+	github.com/dgraph-io/badger/v4 v4.6.0
 	github.com/goccy/go-json v0.10.5
 	github.com/golangci/golangci-lint v1.64.6
 	github.com/google/go-cmp v0.7.0
@@ -137,7 +137,7 @@ require (
 	github.com/golangci/revgrep v0.8.0 // indirect
 	github.com/golangci/unconvert v0.0.0-20240309020433-c5143eacb3ed // indirect
 	github.com/google/cel-go v0.22.1 // indirect
-	github.com/google/flatbuffers v24.12.23+incompatible // indirect
+	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/google/go-containerregistry v0.20.2 // indirect
 	github.com/google/pprof v0.0.0-20241210010833-40e02aabc2ad // indirect
 	github.com/gordonklaus/ineffassign v0.1.0 // indirect
@@ -164,7 +164,7 @@ require (
 	github.com/karamaru-alpha/copyloopvar v1.2.1 // indirect
 	github.com/kisielk/errcheck v1.9.0 // indirect
 	github.com/kkHAIKE/contextcheck v1.1.6 // indirect
-	github.com/klauspost/compress v1.17.11 // indirect
+	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/kulti/thelper v0.6.3 // indirect
 	github.com/kunwardeep/paralleltest v1.0.10 // indirect
