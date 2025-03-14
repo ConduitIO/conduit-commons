@@ -2,6 +2,8 @@ module github.com/conduitio/conduit-commons
 
 go 1.23.0
 
+toolchain go1.24.1
+
 require (
 	github.com/bufbuild/buf v1.50.1
 	github.com/dgraph-io/badger/v4 v4.6.0
@@ -21,7 +23,7 @@ require (
 	golang.org/x/exp v0.0.0-20250228200357-dead58393ab7
 	golang.org/x/tools v0.31.0
 	google.golang.org/protobuf v1.36.5
-	modernc.org/sqlite v1.36.0
+	modernc.org/sqlite v1.36.1
 	mvdan.cc/gofumpt v0.7.0
 )
 
