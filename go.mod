@@ -1,6 +1,6 @@
 module github.com/conduitio/conduit-commons
 
-go 1.24.1
+go 1.24.2
 
 require (
 	github.com/dgraph-io/badger/v4 v4.6.0
