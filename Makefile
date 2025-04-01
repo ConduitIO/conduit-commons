@@ -21,7 +21,7 @@ fmt:
 .PHONY: install-tools
 install-tools:
 	@echo Installing tools from tools.go
-	@go list tool | xargs -I % go list -f "%@{{.Module.Version}}" % | xargs -tI % go install %
+	@go list -modfile=tools/go.mod tool | xargs -I % go list -modfile=tools/go.mod -f "%@{{.Module.Version}}" % | xargs -tI % go install %
 	@go mod tidy
 
 .PHONY: generate
