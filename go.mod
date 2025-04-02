@@ -17,7 +17,7 @@ require (
 	go.uber.org/goleak v1.3.0
 	go.uber.org/mock v0.5.0
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394
-	google.golang.org/protobuf v1.36.5
+	google.golang.org/protobuf v1.36.6
 	modernc.org/sqlite v1.37.0
 )
 
