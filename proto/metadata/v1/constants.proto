@@ -5,15 +5,13 @@ package metadata.v1;
 import "google/protobuf/descriptor.proto";
 
 option go_package = "github.com/conduitio/conduit-commons/proto/metadata/v1";
-
-option (metadata_conduit_source_plugin_name) = "conduit.source.plugin.name";
-option (metadata_conduit_source_plugin_version) = "conduit.source.plugin.version";
 option (metadata_conduit_destination_plugin_name) = "conduit.destination.plugin.name";
 option (metadata_conduit_destination_plugin_version) = "conduit.destination.plugin.version";
-
-option(metadata_conduit_source_connector_id) = "conduit.source.connector.id";
-option(metadata_conduit_dlq_nack_error) = "conduit.dlq.nack.error";
-option(metadata_conduit_dlq_nack_node_id) = "conduit.dlq.nack.node.id";
+option (metadata_conduit_dlq_nack_error) = "conduit.dlq.nack.error";
+option (metadata_conduit_dlq_nack_node_id) = "conduit.dlq.nack.node.id";
+option (metadata_conduit_source_connector_id) = "conduit.source.connector.id";
+option (metadata_conduit_source_plugin_name) = "conduit.source.plugin.name";
+option (metadata_conduit_source_plugin_version) = "conduit.source.plugin.version";
 
 // We are (ab)using custom file options to define constants.
 // See https://github.com/protocolbuffers/protobuf/issues/3520#issuecomment-323613839
