@@ -375,25 +375,22 @@ func (m Metadata) SetFileHash(filehash string) {
 	m[MetadataFileHash] = filehash
 }
 
-// GetFileIsChunked gets the metadata value for key MetadataFileHash.
-func (m Metadata) GetFileChunked() bool {
-	chunked, err := m.getValue(MetadataFileChunked)
+// GetFileChunked gets the metadata value for key MetadataFileChunked.
+func (m Metadata) GetFileChunked() (bool, error) {
+	val, err := m.getValue(MetadataFileChunked)
 	if err != nil {
-		return false
+		return false, err
 	}
-	if chunked == "true" {
-		return true
+	chunked, err := strconv.ParseBool(val)
+	if err != nil {
+		return false, err
 	}
-	return false
+	return chunked, nil
 }
 
-// SetFileIsChunked sets the metadata value for key MetadataFileHash.
+// SetFileChunked sets the metadata value for key MetadataFileChunked.
 func (m Metadata) SetFileChunked(ok bool) {
-	if ok {
-		m[MetadataFileChunked] = "true"
-	} else {
-		m[MetadataFileChunked] = "false"
-	}
+	m[MetadataFileChunked] = strconv.FormatBool(ok)
 }
 
 // GetFileChunkIndex gets the metadata value for key MetadataFileChunkIndex.
