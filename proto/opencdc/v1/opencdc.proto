@@ -63,11 +63,11 @@ extend google.protobuf.FileOptions {
   // Metadata field "opencdc.file.hash" contains the file content hash of the file record.
   string metadata_file_hash = 10010;  
   // Metadata field "opencdc.file.chunked" contains if the record is chunked record of a file.
-  bool metadata_file_is_chunked = 10011;
+  bool metadata_file_chunked = 10011;
   // Metadata field "opencdc.file.chunk.index" contains the chunk index of the file record.
   int64 metadata_file_chunk_index = 10012;
-  // Metadata field "opencdc.file.chunk.total" contains the total number of chunks of the file record.
-  int64 metadata_file_chunk_total = 10013;
+  // Metadata field "opencdc.file.chunk.count" contains the total number of chunks of the file record.
+  int64 metadata_file_chunk_count = 10013;
 }
 
 // Operation defines what triggered the creation of a record.

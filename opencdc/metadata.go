@@ -58,18 +58,24 @@ const (
 	// the record's .Payload field.
 	MetadataPayloadSchemaVersion = "opencdc.payload.schema.version"
 
-	// MetadataFileName is a Record.Metadata key for filename.
+	// MetadataFileName is a Record.Metadata key for the original file name,
+	// applicable when the record originates from a file-based source.
 	MetadataFileName = "opencdc.file.name"
-	// MetadataFileSize is a Record.Metadata key for filesize.
+	// MetadataFileSize is a Record.Metadata key for the total size (in bytes)
+	// of the original file, if the record is derived from a file.
 	MetadataFileSize = "opencdc.file.size"
-	// MetadataFileHash is a Record.Metadata key for filehash.
+	// MetadataFileHash is a Record.Metadata key for the hash (e.g., SHA-256) of
+	// the complete file, used when the record originates from a file.
 	MetadataFileHash = "opencdc.file.hash"
-	// MetadataFileIsChunked is a Record.Metadata key that stores true if the record is a chunk of a file.
-	MetadataFileIsChunked = "opencdc.file.chunked"
-	// MetadataFileChunkIndex is a Record.Metadata key for chunk index.
+	// MetadataFileChunked is a Record.Metadata key that indicates whether
+	// the record represents a chunk of a larger file (i.e., part of a chunked transfer).
+	MetadataFileChunked = "opencdc.file.chunked"
+	// MetadataFileChunkIndex is a Record.Metadata key for the one-based index
+	// of the current chunk, if the record is part of a chunked file.
 	MetadataFileChunkIndex = "opencdc.file.chunk.index"
-	// MetadataFileChunkTotal is a Record.Metadata key for total number of chunked record for a file.
-	MetadataFileChunkTotal = "opencdc.file.chunk.total"
+	// MetadataFileChunkCount is a Record.Metadata key indicating the total
+	// number of chunks the file was split into, when chunking is used.
+	MetadataFileChunkCount = "opencdc.file.chunk.count"
 
 	// MetadataConduitSourcePluginName is a Record.Metadata key for the name of
 	// the source plugin that created this record.
@@ -370,8 +376,8 @@ func (m Metadata) SetFileHash(filehash string) {
 }
 
 // GetFileIsChunked gets the metadata value for key MetadataFileHash.
-func (m Metadata) GetFileIsChunked() bool {
-	chunked, err := m.getValue(MetadataFileIsChunked)
+func (m Metadata) GetFileChunked() bool {
+	chunked, err := m.getValue(MetadataFileChunked)
 	if err != nil {
 		return false
 	}
@@ -382,11 +388,11 @@ func (m Metadata) GetFileIsChunked() bool {
 }
 
 // SetFileIsChunked sets the metadata value for key MetadataFileHash.
-func (m Metadata) SetFileIsChunked(ok bool) {
+func (m Metadata) SetFileChunked(ok bool) {
 	if ok {
-		m[MetadataFileIsChunked] = "true"
+		m[MetadataFileChunked] = "true"
 	} else {
-		m[MetadataFileIsChunked] = "false"
+		m[MetadataFileChunked] = "false"
 	}
 }
 
@@ -411,10 +417,10 @@ func (m Metadata) SetFileChunkIndex(i int) {
 	m[MetadataFileChunkIndex] = strconv.Itoa(i)
 }
 
-// GetFileChunkTotal gets the metadata value for key MetadataFileChunkTotal.
+// GetFileChunkCount gets the metadata value for key MetadataFileChunkCount.
 // If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
-func (m Metadata) GetFileChunkTotal() (int, error) {
-	i, err := m.getValue(MetadataFileChunkTotal)
+func (m Metadata) GetFileChunkCount() (int, error) {
+	i, err := m.getValue(MetadataFileChunkCount)
 	if err != nil {
 		return 0, err
 	}
@@ -427,9 +433,9 @@ func (m Metadata) GetFileChunkTotal() (int, error) {
 	return filesize, nil
 }
 
-// SetFileChunkTotal sets the metadata value for key MetadataFileChunkTotal.
-func (m Metadata) SetFileChunkTotal(i int) {
-	m[MetadataFileChunkTotal] = strconv.Itoa(i)
+// SetFileChunkCount sets the metadata value for key MetadataFileChunkCount.
+func (m Metadata) SetFileChunkCount(i int) {
+	m[MetadataFileChunkCount] = strconv.Itoa(i)
 }
 
 // getValue returns the value for a specific key. If the value does not exist or
