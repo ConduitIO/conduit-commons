@@ -58,6 +58,25 @@ const (
 	// the record's .Payload field.
 	MetadataPayloadSchemaVersion = "opencdc.payload.schema.version"
 
+	// MetadataFileName is a Record.Metadata key for the original file name,
+	// applicable when the record originates from a file-based source.
+	MetadataFileName = "opencdc.file.name"
+	// MetadataFileSize is a Record.Metadata key for the total size (in bytes)
+	// of the original file, if the record is derived from a file.
+	MetadataFileSize = "opencdc.file.size"
+	// MetadataFileHash is a Record.Metadata key for the hash (e.g., SHA-256) of
+	// the complete file, used when the record originates from a file.
+	MetadataFileHash = "opencdc.file.hash"
+	// MetadataFileChunked is a Record.Metadata key that indicates whether
+	// the record represents a chunk of a larger file (i.e., part of a chunked transfer).
+	MetadataFileChunked = "opencdc.file.chunked"
+	// MetadataFileChunkIndex is a Record.Metadata key for the one-based index
+	// of the current chunk, if the record is part of a chunked file.
+	MetadataFileChunkIndex = "opencdc.file.chunk.index"
+	// MetadataFileChunkCount is a Record.Metadata key indicating the total
+	// number of chunks the file was split into, when chunking is used.
+	MetadataFileChunkCount = "opencdc.file.chunk.count"
+
 	// MetadataConduitSourcePluginName is a Record.Metadata key for the name of
 	// the source plugin that created this record.
 	MetadataConduitSourcePluginName = "conduit.source.plugin.name"
@@ -311,6 +330,109 @@ func (m Metadata) GetPayloadSchemaVersion() (int, error) {
 // SetPayloadSchemaVersion sets the metadata value for key MetadataPayloadSchemaVersion.
 func (m Metadata) SetPayloadSchemaVersion(version int) {
 	m[MetadataPayloadSchemaVersion] = strconv.Itoa(version)
+}
+
+// GetFileName gets the metadata value for key MetadataFileName.
+// If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
+func (m Metadata) GetFileName() (string, error) {
+	return m.getValue(MetadataFileName)
+}
+
+// SetFileName sets the metadata value for key MetadataFileName.
+func (m Metadata) SetFileName(filename string) {
+	m[MetadataFileName] = filename
+}
+
+// GetFileSize gets the metadata value for key MetadataFileSize.
+// If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
+func (m Metadata) GetFileSize() (int64, error) {
+	size, err := m.getValue(MetadataFileSize)
+	if err != nil {
+		return 0, err
+	}
+
+	filesize, err := strconv.ParseInt(size, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid filesize %q: %w", size, err)
+	}
+
+	return filesize, nil
+}
+
+// SetFileSize sets the metadata value for key MetadataFileSize.
+func (m Metadata) SetFileSize(filesize int64) {
+	m[MetadataFileSize] = strconv.FormatInt(filesize, 10)
+}
+
+// GetFileHash gets the metadata value for key MetadataFileHash.
+// If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
+func (m Metadata) GetFileHash() (string, error) {
+	return m.getValue(MetadataFileHash)
+}
+
+// SetFileHash sets the metadata value for key MetadataFileHash.
+func (m Metadata) SetFileHash(filehash string) {
+	m[MetadataFileHash] = filehash
+}
+
+// GetFileChunked gets the metadata value for key MetadataFileChunked.
+func (m Metadata) GetFileChunked() (bool, error) {
+	val, err := m.getValue(MetadataFileChunked)
+	if err != nil {
+		return false, err
+	}
+	chunked, err := strconv.ParseBool(val)
+	if err != nil {
+		return false, fmt.Errorf("error parsing bool value %q: %w", val, err)
+	}
+	return chunked, nil
+}
+
+// SetFileChunked sets the metadata value for key MetadataFileChunked.
+func (m Metadata) SetFileChunked(ok bool) {
+	m[MetadataFileChunked] = strconv.FormatBool(ok)
+}
+
+// GetFileChunkIndex gets the metadata value for key MetadataFileChunkIndex.
+// If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
+func (m Metadata) GetFileChunkIndex() (int, error) {
+	i, err := m.getValue(MetadataFileChunkIndex)
+	if err != nil {
+		return 0, err
+	}
+
+	filesize, err := strconv.Atoi(i)
+	if err != nil {
+		return 0, fmt.Errorf("invalid chunk index %q: %w", i, err)
+	}
+
+	return filesize, nil
+}
+
+// SetFileChunkIndex sets the metadata value for key MetadataFileChunkIndex.
+func (m Metadata) SetFileChunkIndex(i int) {
+	m[MetadataFileChunkIndex] = strconv.Itoa(i)
+}
+
+// GetFileChunkCount gets the metadata value for key MetadataFileChunkCount.
+// If the value does not exist or is empty the function returns ErrMetadataFieldNotFound.
+func (m Metadata) GetFileChunkCount() (int, error) {
+	i, err := m.getValue(MetadataFileChunkCount)
+	if err != nil {
+		return 0, err
+	}
+
+	filesize, err := strconv.Atoi(i)
+	if err != nil {
+		return 0, fmt.Errorf("invalid chunk total %q: %w", i, err)
+	}
+
+	return filesize, nil
+}
+
+// SetFileChunkCount sets the metadata value for key MetadataFileChunkCount.
+func (m Metadata) SetFileChunkCount(i int) {
+	m[MetadataFileChunkCount] = strconv.Itoa(i)
 }
 
 // getValue returns the value for a specific key. If the value does not exist or
