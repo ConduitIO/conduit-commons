@@ -383,7 +383,7 @@ func (m Metadata) GetFileChunked() (bool, error) {
 	}
 	chunked, err := strconv.ParseBool(val)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("error parsing bool value %q: %w", val, err)
 	}
 	return chunked, nil
 }
