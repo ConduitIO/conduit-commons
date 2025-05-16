@@ -35,6 +35,13 @@ func TestMetadataConstants(t *testing.T) {
 		MetadataPayloadSchemaSubject: opencdcv1.E_MetadataPayloadSchemaSubject,
 		MetadataPayloadSchemaVersion: opencdcv1.E_MetadataPayloadSchemaVersion,
 
+		MetadataFileName:       opencdcv1.E_MetadataFileName,
+		MetadataFileSize:       opencdcv1.E_MetadataFileSize,
+		MetadataFileHash:       opencdcv1.E_MetadataFileHash,
+		MetadataFileChunked:    opencdcv1.E_MetadataFileChunked,
+		MetadataFileChunkIndex: opencdcv1.E_MetadataFileChunkIndex,
+		MetadataFileChunkCount: opencdcv1.E_MetadataFileChunkCount,
+
 		MetadataConduitSourcePluginName:         metadatav1.E_MetadataConduitSourcePluginName,
 		MetadataConduitSourcePluginVersion:      metadatav1.E_MetadataConduitSourcePluginVersion,
 		MetadataConduitDestinationPluginName:    metadatav1.E_MetadataConduitDestinationPluginName,

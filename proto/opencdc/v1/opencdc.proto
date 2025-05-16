@@ -8,6 +8,12 @@ import "google/protobuf/struct.proto";
 option go_package = "github.com/conduitio/conduit-commons/proto/opencdc/v1";
 option (metadata_collection) = "opencdc.collection";
 option (metadata_created_at) = "opencdc.createdAt";
+option (metadata_file_chunk_count) = "opencdc.file.chunk.count";
+option (metadata_file_chunk_index) = "opencdc.file.chunk.index";
+option (metadata_file_chunked) = "opencdc.file.chunked";
+option (metadata_file_hash) = "opencdc.file.hash";
+option (metadata_file_name) = "opencdc.file.name";
+option (metadata_file_size) = "opencdc.file.size";
 option (metadata_key_schema_subject) = "opencdc.key.schema.subject";
 option (metadata_key_schema_version) = "opencdc.key.schema.version";
 option (metadata_payload_schema_subject) = "opencdc.payload.schema.subject";
@@ -57,15 +63,15 @@ extend google.protobuf.FileOptions {
   // Metadata field "opencdc.file.name" contains the file name of the file record.
   string metadata_file_name = 10008;
   // Metadata field "opencdc.file.size" contains the file size of the file record.
-  int64 metadata_file_size = 10009;
+  string metadata_file_size = 10009;
   // Metadata field "opencdc.file.hash" contains the file content hash of the file record.
   string metadata_file_hash = 10010;
   // Metadata field "opencdc.file.chunked" contains if the record is chunked record of a file.
-  bool metadata_file_chunked = 10011;
+  string metadata_file_chunked = 10011;
   // Metadata field "opencdc.file.chunk.index" contains the chunk index of the file record.
-  int64 metadata_file_chunk_index = 10012;
+  string metadata_file_chunk_index = 10012;
   // Metadata field "opencdc.file.chunk.count" contains the total number of chunks of the file record.
-  int64 metadata_file_chunk_count = 10013;
+  string metadata_file_chunk_count = 10013;
 }
 
 // Operation defines what triggered the creation of a record.

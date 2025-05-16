@@ -383,7 +383,7 @@ func (m Metadata) GetFileChunked() (bool, error) {
 	}
 	chunked, err := strconv.ParseBool(val)
 	if err != nil {
-		return false, fmt.Errorf("error parsing bool value %q: %w", val, err)
+		return false, fmt.Errorf("invalid file chunked field %q: %w", val, err)
 	}
 	return chunked, nil
 }
@@ -424,7 +424,7 @@ func (m Metadata) GetFileChunkCount() (int, error) {
 
 	filesize, err := strconv.Atoi(i)
 	if err != nil {
-		return 0, fmt.Errorf("invalid chunk total %q: %w", i, err)
+		return 0, fmt.Errorf("invalid chunk count %q: %w", i, err)
 	}
 
 	return filesize, nil
