@@ -17,6 +17,7 @@ package avro
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
@@ -313,6 +314,36 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 			},
 		)),
 	}, {
+		name:      "big.Rat",
+		haveValue: *big.NewRat(2, 5),
+		wantValue: big.NewRat(2, 5),
+		wantSchema: avro.NewPrimitiveSchema(
+			avro.Bytes,
+			avro.NewDecimalLogicalSchema(31, 10),
+		),
+	}, {
+		name:      "big.Rat (with rounding)",
+		haveValue: *big.NewRat(2, 3),
+		// rounded to 10 decimals
+		wantValue: big.NewRat(6666666666, 10000000000),
+		wantSchema: avro.NewPrimitiveSchema(
+			avro.Bytes,
+			avro.NewDecimalLogicalSchema(31, 10),
+		),
+	}, {
+		name:      "big.Rat (ptr)",
+		haveValue: big.NewRat(2, 5),
+		wantValue: big.NewRat(2, 5),
+		wantSchema: must(avro.NewUnionSchema(
+			[]avro.Schema{
+				avro.NewPrimitiveSchema(avro.Null, nil),
+				avro.NewPrimitiveSchema(
+					avro.Bytes,
+					avro.NewDecimalLogicalSchema(31, 10),
+				),
+			},
+		)),
+	}, {
 		name:       "string",
 		haveValue:  "1",
 		wantValue:  "1",
@@ -555,7 +586,7 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			is := is.New(t)
 
-			// create new record with haveValue in field "foo"
+			// create a new record with haveValue in the field "foo"
 			haveValue := newRecord(tc.haveValue)
 
 			// extract serde and ensure it matches the expectation
@@ -580,7 +611,9 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 			is.NoErr(err)
 
 			wantValue := newRecord(tc.wantValue)
-			is.Equal("", cmp.Diff(wantValue, gotValue))
+			is.Equal("", cmp.Diff(wantValue, gotValue, cmp.Comparer(func(x, y *big.Rat) bool {
+				return x.Cmp(y) == 0
+			})))
 		})
 	}
 }
