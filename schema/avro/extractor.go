@@ -16,6 +16,7 @@ package avro
 
 import (
 	"fmt"
+	"math/big"
 	"reflect"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ var (
 	byteType           = reflect.TypeFor[byte]()
 	timeType           = reflect.TypeFor[time.Time]()
 	durationType       = reflect.TypeFor[time.Duration]()
+	bigRatType         = reflect.TypeFor[big.Rat]()
 )
 
 // extractor exposes a way to extract an Avro schema from a Go value.
@@ -101,12 +103,6 @@ func (e extractor) extract(path []string, v reflect.Value, t reflect.Type) (avro
 	case reflect.Map:
 		return e.extractMap(path, v, t)
 	case reflect.Struct:
-		if t == timeType {
-			return avro.NewPrimitiveSchema(
-				avro.Long,
-				avro.NewPrimitiveLogicalSchema(avro.TimestampMicros),
-			), nil
-		}
 		return e.extractStruct(path, v, t)
 	default:
 		// Invalid, Uintptr, UnsafePointer, Uint64, Uint, Complex64, Complex128, Chan, Func
@@ -283,39 +279,25 @@ func (e extractor) extractMap(path []string, v reflect.Value, t reflect.Type) (a
 	return avro.NewMapSchema(vs), nil
 }
 
-// extractStruct traverses the struct fields, extracts the schema for each field
-// and combines them into a record schema. If the field contains a json tag,
-// that tag is used for the extracted name of the field, otherwise it is the
-// name of the Go struct field. If the json tag of a field contains "-" (i.e.
-// ignored field), then the field is skipped.
 func (e extractor) extractStruct(path []string, v reflect.Value, t reflect.Type) (avro.Schema, error) {
-	var fields []*avro.Field
-	for i := 0; i < t.NumField(); i++ {
-		sf := t.Field(i)
-		name, ok := e.getStructFieldJSONName(sf)
-		if !ok {
-			continue // skip this field
-		}
-		var vfi reflect.Value
-		if v.IsValid() {
-			vfi = v.Field(i)
-		}
-		fs, err := e.extract(append(path, name), vfi, t.Field(i).Type)
-		if err != nil {
-			return nil, err
-		}
-
-		field, err := avro.NewField(name, fs)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
-		}
-		fields = append(fields, field)
+	switch t {
+	case timeType:
+		return avro.NewPrimitiveSchema(
+			avro.Long,
+			avro.NewPrimitiveLogicalSchema(avro.TimestampMicros),
+		), nil
+	case bigRatType:
+		return avro.NewPrimitiveSchema(
+			avro.Bytes,
+			// This is just an estimate of what might for most widely used DBs.
+			// Amongst PostgreSQL, MySQL, Oracle, SQL Server, Db2,
+			// Db2 has the smallest max-allowed precision, which is 31.
+			// Scale 10 should give enough digits for most financial data/calculations.
+			avro.NewDecimalLogicalSchema(31, 10),
+		), nil
+	default:
+		return e.extractGenericStruct(path, v, t)
 	}
-	rs, err := avro.NewRecordSchema(strings.Join(path, "."), "", fields)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
-	}
-	return rs, nil
 }
 
 //nolint:gocognit,funlen // this function is complex by nature
@@ -408,4 +390,39 @@ func (extractor) getStructFieldJSONName(sf reflect.StructField) (string, bool) {
 		return jsonTag, true
 	}
 	return sf.Name, true
+}
+
+// extractGenericStruct traverses the struct fields, extracts the schema for each field
+// and combines them into a record schema. If the field contains a json tag,
+// that tag is used for the extracted name of the field, otherwise it is the
+// name of the Go struct field. If the json tag of a field contains "-" (i.e.
+// ignored field), then the field is skipped.
+func (e extractor) extractGenericStruct(path []string, v reflect.Value, t reflect.Type) (avro.Schema, error) {
+	var fields []*avro.Field
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		name, ok := e.getStructFieldJSONName(sf)
+		if !ok {
+			continue // skip this field
+		}
+		var vfi reflect.Value
+		if v.IsValid() {
+			vfi = v.Field(i)
+		}
+		fs, err := e.extract(append(path, name), vfi, t.Field(i).Type)
+		if err != nil {
+			return nil, err
+		}
+
+		field, err := avro.NewField(name, fs)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
+		}
+		fields = append(fields, field)
+	}
+	rs, err := avro.NewRecordSchema(strings.Join(path, "."), "", fields)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
+	}
+	return rs, nil
 }
