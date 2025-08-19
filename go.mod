@@ -15,7 +15,7 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/twmb/go-cache v1.2.1
 	go.uber.org/goleak v1.3.0
-	go.uber.org/mock v0.5.2
+	go.uber.org/mock v0.6.0
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b
 	google.golang.org/protobuf v1.36.7
 	modernc.org/sqlite v1.38.2
@@ -47,7 +47,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.37.0 // indirect
 	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/net v0.41.0 // indirect
-	golang.org/x/sync v0.15.0 // indirect
+	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/text v0.26.0 // indirect
 	modernc.org/libc v1.66.3 // indirect
