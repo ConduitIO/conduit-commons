@@ -7,7 +7,7 @@ require (
 	github.com/goccy/go-json v0.10.5
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
-	github.com/hamba/avro/v2 v2.28.0
+	github.com/hamba/avro/v2 v2.30.0
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/matryer/is v1.4.1
 	github.com/mitchellh/mapstructure v1.5.0
@@ -28,6 +28,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/google/pprof v0.0.0-20250501235452-c0086092b71a // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
