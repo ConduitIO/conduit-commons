@@ -18,7 +18,7 @@ require (
 	go.uber.org/mock v0.6.0
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546
 	google.golang.org/protobuf v1.36.11
-	modernc.org/sqlite v1.45.0
+	modernc.org/sqlite v1.46.0
 )
 
 require (
