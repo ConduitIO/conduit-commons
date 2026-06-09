@@ -3,7 +3,7 @@ module github.com/conduitio/conduit-commons
 go 1.24.2
 
 require (
-	github.com/dgraph-io/badger/v4 v4.9.1
+	github.com/dgraph-io/badger/v4 v4.9.2
 	github.com/goccy/go-json v0.10.6
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
@@ -45,7 +45,6 @@ require (
 	go.opentelemetry.io/otel v1.37.0 // indirect
 	go.opentelemetry.io/otel/metric v1.37.0 // indirect
 	go.opentelemetry.io/otel/trace v1.37.0 // indirect
-	golang.org/x/net v0.43.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
