@@ -25,7 +25,8 @@ import (
 type Serde struct {
 	schema        avro.Schema
 	unionResolver unionResolver
-	maxInputSize  int
+	maxInputSize  int      // 0 = unlimited (default); see WithMaxInputSize
+	decodeAPI     avro.API // built once at construction from maxInputSize; see limits.go
 }
 
 // Marshal returns the Avro encoding of v. Note that this function may mutate v.
@@ -50,26 +51,27 @@ func (s *Serde) Marshal(v any) ([]byte, error) {
 // values (i.e. []any and map[string]any). This is a limitation of the Avro
 // library used for encoding/decoding the payload.
 //
-// Unmarshal rejects input larger than this Serde's MaxInputSize ceiling
-// (256 MiB by default; see WithMaxInputSize) with ErrInputTooLarge before it
-// reaches the underlying decoder, and decodes with an array-allocation bound
-// derived from the input's actual size instead of a fixed constant (see
-// limits.go). This is a mitigation for unfixed decoder advisories in
-// github.com/hamba/avro/v2, not a fix -- it bounds the blast radius of
-// decoding untrusted Avro bytes for the one advisory class (array
-// allocation) hamba/avro's Config API lets it bound at all. It does not
+// By default Unmarshal enforces no input-size ceiling (see WithMaxInputSize
+// for why, and for how to opt into one). If a ceiling was configured,
+// Unmarshal rejects input larger than it with ErrInputTooLarge before it
+// reaches the underlying decoder, and decodes with an array-allocation
+// bound derived from that same configured ceiling (see limits.go). This is
+// a mitigation for unfixed decoder advisories in github.com/hamba/avro/v2,
+// not a fix -- and, for the array-allocation advisory class, only a
+// mitigation at all when a ceiling has been configured. It does not
 // mitigate map-cardinality CPU exhaustion (GO-2026-5046, reachable through
 // hamba/avro's mapDecoderUnmarshaler when the destination map's key type
 // implements encoding.TextUnmarshaler) or the integer-overflow class
 // (GO-2026-5047, in Reader.ReadBlockHeader itself, upstream of anything
-// this package can configure). See limits.go's package doc for the full,
-// re-verified justification, including what closes under the codec
-// replacement in the paired design doc and what does not.
+// this package can configure) at any input-size policy. See limits.go's
+// package doc for the full, re-verified justification, including what
+// closes under the codec replacement in the paired design doc and what
+// does not.
 func (s *Serde) Unmarshal(b []byte, v any) error {
-	if len(b) > s.maxInputSize {
+	if s.maxInputSize > 0 && len(b) > s.maxInputSize {
 		return fmt.Errorf("%w: %d bytes exceeds the %d byte limit", ErrInputTooLarge, len(b), s.maxInputSize)
 	}
-	err := decodeAPIForInputSize(len(b)).Unmarshal(s.schema, b, v)
+	err := s.decodeAPI.Unmarshal(s.schema, b, v)
 	if err != nil {
 		return fmt.Errorf("could not unmarshal from avro: %w", err)
 	}
@@ -92,7 +94,8 @@ func (s *Serde) sort() {
 }
 
 // Parse parses a schema byte slice. By default the returned Serde enforces
-// defaultMaxInputSize on Unmarshal; pass WithMaxInputSize to override it.
+// no input-size ceiling on Unmarshal; pass WithMaxInputSize to opt into
+// one.
 func Parse(text []byte, opts ...Option) (*Serde, error) {
 	schema, err := avro.ParseBytes(text)
 	if err != nil {
@@ -108,12 +111,13 @@ func Parse(text []byte, opts ...Option) (*Serde, error) {
 		schema:        schema,
 		unionResolver: newUnionResolver(schema),
 		maxInputSize:  o.maxInputSize,
+		decodeAPI:     buildDecodeAPI(o.maxInputSize),
 	}, nil
 }
 
 // SerdeForType uses reflection to extract an Avro schema from v. Maps are
-// regarded as structs. By default the returned Serde enforces
-// defaultMaxInputSize on Unmarshal; pass WithMaxInputSize to override it.
+// regarded as structs. By default the returned Serde enforces no
+// input-size ceiling on Unmarshal; pass WithMaxInputSize to opt into one.
 func SerdeForType(v any, opts ...Option) (*Serde, error) {
 	schema, err := extractor{}.Extract(v)
 	if err != nil {
@@ -124,6 +128,7 @@ func SerdeForType(v any, opts ...Option) (*Serde, error) {
 		schema:        schema,
 		unionResolver: newUnionResolver(schema),
 		maxInputSize:  o.maxInputSize,
+		decodeAPI:     buildDecodeAPI(o.maxInputSize),
 	}
 	// Sort fields to ensure consistent schema representation.
 	s.sort()
