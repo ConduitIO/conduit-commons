@@ -25,6 +25,7 @@ import (
 type Serde struct {
 	schema        avro.Schema
 	unionResolver unionResolver
+	maxInputSize  int
 }
 
 // Marshal returns the Avro encoding of v. Note that this function may mutate v.
@@ -49,18 +50,26 @@ func (s *Serde) Marshal(v any) ([]byte, error) {
 // values (i.e. []any and map[string]any). This is a limitation of the Avro
 // library used for encoding/decoding the payload.
 //
-// Unmarshal rejects input larger than MaxInputSize with ErrInputTooLarge
-// before it reaches the underlying decoder, and decodes with explicit,
-// tightened bounds on per-field and cumulative array allocation (see
+// Unmarshal rejects input larger than this Serde's MaxInputSize ceiling
+// (256 MiB by default; see WithMaxInputSize) with ErrInputTooLarge before it
+// reaches the underlying decoder, and decodes with an array-allocation bound
+// derived from the input's actual size instead of a fixed constant (see
 // limits.go). This is a mitigation for unfixed decoder advisories in
 // github.com/hamba/avro/v2, not a fix -- it bounds the blast radius of
-// decoding untrusted Avro bytes, it does not eliminate it. See limits.go
-// for the full justification and what is and is not enforceable.
+// decoding untrusted Avro bytes for the one advisory class (array
+// allocation) hamba/avro's Config API lets it bound at all. It does not
+// mitigate map-cardinality CPU exhaustion (GO-2026-5046, reachable through
+// hamba/avro's mapDecoderUnmarshaler when the destination map's key type
+// implements encoding.TextUnmarshaler) or the integer-overflow class
+// (GO-2026-5047, in Reader.ReadBlockHeader itself, upstream of anything
+// this package can configure). See limits.go's package doc for the full,
+// re-verified justification, including what closes under the codec
+// replacement in the paired design doc and what does not.
 func (s *Serde) Unmarshal(b []byte, v any) error {
-	if len(b) > MaxInputSize {
-		return fmt.Errorf("%w: %d bytes exceeds the %d byte limit", ErrInputTooLarge, len(b), MaxInputSize)
+	if len(b) > s.maxInputSize {
+		return fmt.Errorf("%w: %d bytes exceeds the %d byte limit", ErrInputTooLarge, len(b), s.maxInputSize)
 	}
-	err := decodeAPI.Unmarshal(s.schema, b, v)
+	err := decodeAPIForInputSize(len(b)).Unmarshal(s.schema, b, v)
 	if err != nil {
 		return fmt.Errorf("could not unmarshal from avro: %w", err)
 	}
@@ -82,12 +91,14 @@ func (s *Serde) sort() {
 	traverseSchema(s.schema, sortFn)
 }
 
-// Parse parses a schema byte slice.
-func Parse(text []byte) (*Serde, error) {
+// Parse parses a schema byte slice. By default the returned Serde enforces
+// defaultMaxInputSize on Unmarshal; pass WithMaxInputSize to override it.
+func Parse(text []byte, opts ...Option) (*Serde, error) {
 	schema, err := avro.ParseBytes(text)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse avro schema: %w", err)
 	}
+	o := resolveOptions(opts)
 	// Note: We do not sort fields here because field order is significant in
 	// Avro schemas. Sorting would alter the schema and change the output. In
 	// SerdeForType, sorting ensures consistency when creating a schema from a
@@ -96,19 +107,23 @@ func Parse(text []byte) (*Serde, error) {
 	return &Serde{
 		schema:        schema,
 		unionResolver: newUnionResolver(schema),
+		maxInputSize:  o.maxInputSize,
 	}, nil
 }
 
 // SerdeForType uses reflection to extract an Avro schema from v. Maps are
-// regarded as structs.
-func SerdeForType(v any) (*Serde, error) {
+// regarded as structs. By default the returned Serde enforces
+// defaultMaxInputSize on Unmarshal; pass WithMaxInputSize to override it.
+func SerdeForType(v any, opts ...Option) (*Serde, error) {
 	schema, err := extractor{}.Extract(v)
 	if err != nil {
 		return nil, err
 	}
+	o := resolveOptions(opts)
 	s := &Serde{
 		schema:        schema,
 		unionResolver: newUnionResolver(schema),
+		maxInputSize:  o.maxInputSize,
 	}
 	// Sort fields to ensure consistent schema representation.
 	s.sort()

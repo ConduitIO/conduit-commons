@@ -21,12 +21,15 @@ var (
 	ErrSchemaValueMismatch = errors.New("avro schema doesn't match supplied value")
 
 	// ErrInputTooLarge is returned by Serde.Unmarshal when the input exceeds
-	// MaxInputSize. See limits.go for why this bound exists: it is the
-	// near-term mitigation for hamba/avro's unfixed decoder advisories
-	// (GO-2026-5046, GO-2026-5047, GO-2026-5048), decided in
+	// the Serde's configured input-size ceiling (see defaultMaxInputSize and
+	// WithMaxInputSize in limits.go). See limits.go for why this bound
+	// exists: it is one part of the near-term mitigation for hamba/avro's
+	// unfixed decoder advisories (GO-2026-5046, GO-2026-5047, GO-2026-5048),
+	// decided in
 	// docs/design-documents/20260823-avro-codec-archived-decoder-advisories.md
-	// in ConduitIO/conduit. Failing closed here rather than truncating or
-	// otherwise coercing the input is deliberate: this package never
-	// silently mangles data.
+	// in ConduitIO/conduit -- see that file's package doc for which
+	// advisories this does and does not mitigate. Failing closed here
+	// rather than truncating or otherwise coercing the input is deliberate:
+	// this package never silently mangles data.
 	ErrInputTooLarge = errors.New("avro input exceeds maximum allowed size")
 )
