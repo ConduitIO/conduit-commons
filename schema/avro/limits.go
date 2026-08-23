@@ -132,7 +132,7 @@ import "github.com/hamba/avro/v2"
 //     and bails on the first failed read; not vulnerable in practice for
 //     this package's own usage (confirmed:
 //     TestMapDecodeCPUExhaustion_SafeStringKeyedPath, ~60us for a
-//     5-million-entry declared block backed by 4 bytes of input). But
+//     20-million-entry declared block backed by 4 bytes of input). But
 //     Serde.Unmarshal is public API with a caller-controlled destination
 //     type, and hamba/avro's *second* map decoder, mapDecoderUnmarshaler
 //     (taken when the destination map's key type implements
@@ -172,7 +172,7 @@ import "github.com/hamba/avro/v2"
 // github.com/iskorotkov/avro/v2 v2.34.0, not assumed from its being a
 // fork): the array decoder's allocate-before-validate pattern, and
 // MaxSliceAllocSize being an element count rather than a byte budget, is
-// unchanged in the fork -- the exact TestArrayBound_ElementCountVsInputSize
+// unchanged in the fork -- the exact TestArrayBound_UnboundedByDefault
 // payload, run against the fork with the same numeric MaxSliceAllocSize
 // value, reproduces identically. The fork's array codec restructured the
 // bound check (compares the current block's declared length against
