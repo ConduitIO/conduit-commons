@@ -48,8 +48,19 @@ func (s *Serde) Marshal(v any) ([]byte, error) {
 // Note that arrays and maps are unmarshalled into slices and maps with untyped
 // values (i.e. []any and map[string]any). This is a limitation of the Avro
 // library used for encoding/decoding the payload.
+//
+// Unmarshal rejects input larger than MaxInputSize with ErrInputTooLarge
+// before it reaches the underlying decoder, and decodes with explicit,
+// tightened bounds on per-field and cumulative array allocation (see
+// limits.go). This is a mitigation for unfixed decoder advisories in
+// github.com/hamba/avro/v2, not a fix -- it bounds the blast radius of
+// decoding untrusted Avro bytes, it does not eliminate it. See limits.go
+// for the full justification and what is and is not enforceable.
 func (s *Serde) Unmarshal(b []byte, v any) error {
-	err := avro.Unmarshal(s.schema, b, v)
+	if len(b) > MaxInputSize {
+		return fmt.Errorf("%w: %d bytes exceeds the %d byte limit", ErrInputTooLarge, len(b), MaxInputSize)
+	}
+	err := decodeAPI.Unmarshal(s.schema, b, v)
 	if err != nil {
 		return fmt.Errorf("could not unmarshal from avro: %w", err)
 	}
