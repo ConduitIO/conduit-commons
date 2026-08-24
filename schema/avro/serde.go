@@ -17,7 +17,7 @@ package avro
 import (
 	"fmt"
 
-	"github.com/hamba/avro/v2"
+	"github.com/iskorotkov/avro/v2"
 )
 
 // Serde represents an Avro schema. It exposes methods for marshaling and
@@ -52,21 +52,42 @@ func (s *Serde) Marshal(v any) ([]byte, error) {
 // library used for encoding/decoding the payload.
 //
 // By default Unmarshal enforces no input-size ceiling (see WithMaxInputSize
-// for why, and for how to opt into one). If a ceiling was configured,
-// Unmarshal rejects input larger than it with ErrInputTooLarge before it
-// reaches the underlying decoder, and decodes with an array-allocation
-// bound derived from that same configured ceiling (see limits.go). This is
-// a mitigation for unfixed decoder advisories in github.com/hamba/avro/v2,
-// not a fix -- and, for the array-allocation advisory class, only a
-// mitigation at all when a ceiling has been configured. It does not
-// mitigate map-cardinality CPU exhaustion (GO-2026-5046, reachable through
-// hamba/avro's mapDecoderUnmarshaler when the destination map's key type
-// implements encoding.TextUnmarshaler) or the integer-overflow class
-// (GO-2026-5047, in Reader.ReadBlockHeader itself, upstream of anything
-// this package can configure) at any input-size policy. See limits.go's
-// package doc for the full, re-verified justification, including what
-// closes under the codec replacement in the paired design doc and what
-// does not.
+// for why, and for how to opt into one). It does always decode with
+// non-zero array/map allocation ceilings (MaxSliceAllocSize,
+// MaxMapAllocSize -- see limits.go's "Default allocation ceilings"),
+// tightened further by any configured input-size ceiling. This package
+// decodes with github.com/iskorotkov/avro/v2, a maintained fork adopted
+// specifically because the previously used github.com/hamba/avro/v2 was
+// archived carrying three unfixed decoder advisories (GO-2026-5046,
+// GO-2026-5047, GO-2026-5048) reachable by decoding untrusted Avro bytes.
+// The fork fixes the integer-overflow class (GO-2026-5047) unconditionally
+// at the source; the array- and map-allocation ceilings this package sets
+// are what close the other two (element-count-vs-byte-budget amplification
+// and unbounded map cardinality, including through a destination map keyed
+// by a type implementing encoding.TextUnmarshaler) -- neither is closed by
+// the codec alone. See limits.go's package doc for the full, re-verified
+// justification, including the table of what the codec swap fixes on its
+// own versus what requires this package's Config values too.
+//
+// Failure leaves v in one of two different states depending on which check
+// rejected the input, and callers must not assume either without checking
+// the error: (1) rejection by the ErrInputTooLarge byte-length check above
+// happens before the decoder is invoked at all, so v is left completely
+// untouched, not partially written, not reset to a zero value; (2)
+// rejection by the decoder itself -- including a MaxSliceAllocSize/
+// MaxMapAllocSize ceiling firing partway through a record with multiple
+// fields -- can leave v partially populated: fields decoded before the
+// one that failed keep their decoded values; for a map[string]any
+// destination, the field that failed is present as an untyped nil (the
+// record decoder assigns the destination map key before attempting to
+// decode its value), not omitted and not its real (possibly truncated)
+// value; any field after it is never assigned at all. Both are "fail with
+// an error, not silently mangled data" (invariant 6): the error is always
+// non-nil when v is not guaranteed fully populated, so a caller that
+// checks the error before using v is safe either way; the distinction
+// matters only for a caller that (incorrectly) inspects v without
+// checking err first. See TestUnmarshal_AllocCeilingRejection_LeavesPartialData
+// in limits_test.go for the exact shape this produces.
 func (s *Serde) Unmarshal(b []byte, v any) error {
 	if s.maxInputSize > 0 && len(b) > s.maxInputSize {
 		return fmt.Errorf("%w: %d bytes exceeds the %d byte limit", ErrInputTooLarge, len(b), s.maxInputSize)
@@ -101,7 +122,10 @@ func Parse(text []byte, opts ...Option) (*Serde, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not parse avro schema: %w", err)
 	}
-	o := resolveOptions(opts)
+	o, err := resolveOptions(opts)
+	if err != nil {
+		return nil, err
+	}
 	// Note: We do not sort fields here because field order is significant in
 	// Avro schemas. Sorting would alter the schema and change the output. In
 	// SerdeForType, sorting ensures consistency when creating a schema from a
@@ -111,7 +135,7 @@ func Parse(text []byte, opts ...Option) (*Serde, error) {
 		schema:        schema,
 		unionResolver: newUnionResolver(schema),
 		maxInputSize:  o.maxInputSize,
-		decodeAPI:     buildDecodeAPI(o.maxInputSize),
+		decodeAPI:     buildDecodeAPI(schema, o),
 	}, nil
 }
 
@@ -123,12 +147,15 @@ func SerdeForType(v any, opts ...Option) (*Serde, error) {
 	if err != nil {
 		return nil, err
 	}
-	o := resolveOptions(opts)
+	o, err := resolveOptions(opts)
+	if err != nil {
+		return nil, err
+	}
 	s := &Serde{
 		schema:        schema,
 		unionResolver: newUnionResolver(schema),
 		maxInputSize:  o.maxInputSize,
-		decodeAPI:     buildDecodeAPI(o.maxInputSize),
+		decodeAPI:     buildDecodeAPI(schema, o),
 	}
 	// Sort fields to ensure consistent schema representation.
 	s.sort()

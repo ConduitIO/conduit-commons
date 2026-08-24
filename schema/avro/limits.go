@@ -14,28 +14,39 @@
 
 package avro
 
-import "github.com/hamba/avro/v2"
+import (
+	"fmt"
+	"sync/atomic"
 
-// Decode-side input bounds for github.com/hamba/avro/v2.
+	"github.com/iskorotkov/avro/v2"
+)
+
+// Decode-side input bounds for github.com/iskorotkov/avro/v2.
 //
-// hamba/avro was archived by its maintainer on 2026-01-18 (final release
-// v2.31.0) carrying three unfixed decoder advisories, all reachable by
-// decoding untrusted Avro bytes -- exactly what Serde.Unmarshal does with
-// records arriving from an upstream Conduit does not control:
+// This package originally decoded with github.com/hamba/avro/v2, which was
+// archived by its maintainer on 2026-01-18 (final release v2.31.0) carrying
+// three unfixed decoder advisories, all reachable by decoding untrusted
+// Avro bytes -- exactly what Serde.Unmarshal does with records arriving
+// from an upstream Conduit does not control:
 //
 //   - GO-2026-5046 -- CPU exhaustion in the array/map decoders
 //   - GO-2026-5047 -- integer overflow in cumulative-size arithmetic
 //   - GO-2026-5048 -- unbounded map allocation
 //
-// The long-term call -- replacing hamba/avro with an actively maintained
-// fork, github.com/iskorotkov/avro/v2 -- is made in
+// The codec was replaced with github.com/iskorotkov/avro/v2 (an actively
+// maintained fork created specifically in response to hamba/avro's
+// archival) per the decision in
 // docs/design-documents/20260823-avro-codec-archived-decoder-advisories.md
-// in ConduitIO/conduit. This file is the near-term, codec-independent
-// mitigation.
-//
-// This is a third pass at that mitigation. Read this history before
-// changing anything below -- both previous versions were rejected for
-// reasons that constrain what a correct version can look like.
+// in ConduitIO/conduit. This file's history below (the three "Pass"
+// sections) predates the codec swap and describes the near-term,
+// codec-independent mitigation this package shipped first, against
+// hamba/avro, before the swap landed. It is preserved because the
+// reasoning still applies unchanged to the fork -- MaxInputSize's
+// unlimited-by-default policy, and why, did not change when the codec
+// did. What changed with the swap is documented in the section after it,
+// "The codec swap: what it fixes and what it does not," which is the part
+// to read first if you are here because of GO-2026-5046/5047/5048
+// specifically.
 //
 // # Pass 1 (rejected): a hard default ceiling justified against the wrong
 // number
@@ -66,221 +77,383 @@ import "github.com/hamba/avro/v2"
 // with someone else's pipeline data. If that number is ever too small for
 // a real (if unusual) record, this package silently breaks a working
 // pipeline by default, for a security property that -- once the codec
-// replacement lands -- is not even this package's job to provide (see
-// below).
+// replacement lands -- is not even this package's job to provide alone
+// (see below).
 //
-// # Pass 3 (this version): unlimited by default, opt-in ceiling, no
-// input-length-derived array bound
+// # Pass 3: unlimited by default, opt-in ceiling, no input-length-derived
+// array bound
 //
-// MaxInputSize now defaults to 0 (unlimited): Serde.Unmarshal enforces no
+// MaxInputSize defaults to 0 (unlimited): Serde.Unmarshal enforces no
 // input-size ceiling unless a caller explicitly opts in via
 // WithMaxInputSize. This is a deliberate policy choice, not an oversight:
-// once the codec replacement lands, GO-2026-5046/5047/5048 close at the
-// decoder (Reader.ReadBlockHeader's overflow guard, Config.MaxMapAllocSize)
-// regardless of input size, so an input-size ceiling stops being a security
-// control and becomes what it always should have been framed as: an
-// operator policy knob -- "refuse absurd records early, before allocating
-// anything" -- for an operator who actually knows their own record shapes
-// and wants that belt-and-braces behavior on top of the codec fix, not a
-// substitute for it. A policy knob must not break a stranger's working
-// pipeline by default. See WithMaxInputSize's doc comment for how to opt
-// in, and why an operator reading from an untrusted upstream should.
+// nothing on Conduit's data path bounds record size today (Pass 1's
+// citations), this repo has no telemetry on real-world record shapes, and
+// this package cannot know what a legitimate record looks like across
+// every Conduit deployment any more than it can know what a legitimate
+// array field looks like (see the codec-swap section below for that other
+// half). A policy knob must not break a stranger's working pipeline by
+// default. See WithMaxInputSize's doc comment for how to opt in, and why
+// an operator reading from an untrusted upstream should.
 //
-// This has a direct consequence for the array-allocation bound
-// (MaxSliceAllocSize) that pass 2 derived from each call's input length:
-// that derivation is only sound if input length itself is bounded by
-// something the attacker cannot inflate. It is not, once MaxInputSize
-// defaults to unlimited: an attacker can pad an otherwise-tiny malicious
-// payload (a handful of bytes declaring an absurd element count) with
-// arbitrary trailing garbage the array decoder never reaches, inflating
-// the *observed* input length past their own declared count and defeating
-// a bound derived from it. Confirmed directly: a 100,000,000-element
-// declared count, backed by a 4-byte header plus 200 MiB of irrelevant
-// padding, sails through a MaxSliceAllocSize set to len(the whole
-// padded payload) with err == nil. Deriving the array bound from a
-// specific call's observed byte length is therefore not a sound
-// mitigation on its own and has been removed as pass 2 implemented it.
+// This has a consequence for how MaxInputSize, when configured, interacts
+// with the array/map bounds described below: deriving an allocation
+// ceiling from a given call's *observed* input length (rather than a
+// configured constant) is not sound, because that observed length is
+// itself attacker-inflatable by padding. Confirmed directly: a
+// 100,000,000-element declared count, backed by a 4-byte header plus
+// 200 MiB of irrelevant trailing padding, sails through an allocation
+// ceiling set to len(the whole padded payload) with err == nil. Any
+// ceiling this package derives from MaxInputSize is therefore derived from
+// the Serde's *configured* maxInputSize (an operator-chosen, pre-decode-
+// enforced constant established at construction time), never from a
+// specific call's observed byte length.
 //
-// What replaces it: decodeAPI's MaxSliceAllocSize is now derived from the
-// Serde's own *configured* maxInputSize (an operator-chosen, pre-decode-
-// enforced constant established at construction time), not from any
-// per-call, attacker-observable value -- when maxInputSize is unset
-// (the default), no array-allocation ceiling is applied here either, for
-// the same "don't guess" reasoning as MaxInputSize itself: this package
-// cannot know what a legitimate array field looks like across every
-// Conduit deployment, any more than it can know what a legitimate record
-// size looks like. When an operator does opt into WithMaxInputSize(n),
-// Serde.Unmarshal already rejects any input longer than n before decoding
-// starts, which makes capping declared array-element count at n sound
-// (not padding-bypassable, because n bounds the *whole* input, checked
-// up front, not the array decoder's specific slice of it): every element
-// of a non-null type costs at least one wire byte, so a declared count
-// exceeding the total number of bytes the caller was allowed to send at
-// all is provably impossible for real data.
+// maxByteSliceSize is a no-op by construction: both hamba/avro's and the
+// fork's getMaxByteSliceSize() resolve an unset (0) field to the same
+// 1 MiB default our explicit 1*1024*1024 sets -- setting the field cannot,
+// by construction, ever produce different behavior than leaving it unset.
+// It stays here as documentation of intent (explicit instead of implicit
+// in a dependency whose defaults a reader would otherwise have to go
+// looking up), not as a behavior change; TestByteSliceBound_Fires proves
+// the ceiling itself (whichever value resolves it) actually rejects an
+// oversized field.
 //
-// This still does not close GO-2026-5046, GO-2026-5047, or, for
-// non-null-item arrays with a caller who has not opted into
-// WithMaxInputSize, the pass-1/pass-2 style unbounded-allocation case
-// either -- it is deliberately scoped to be sound rather than to look more
-// protective than it is. Verified by direct reproduction (see
-// limits_test.go):
+// # The codec swap: what it fixes and what it does not
 //
-//  1. GO-2026-5046 (map CPU exhaustion): hamba/avro's *string-keyed* map
-//     decoder (mapDecoder.Decode, codec_map.go) -- the only path
-//     Serde.Unmarshal's own map[string]any/map[string]string usage
-//     ever takes -- checks the reader's error state after every element
-//     and bails on the first failed read; not vulnerable in practice for
-//     this package's own usage (confirmed:
-//     TestMapDecodeCPUExhaustion_SafeStringKeyedPath, ~60us for a
-//     20-million-entry declared block backed by 4 bytes of input). But
-//     Serde.Unmarshal is public API with a caller-controlled destination
-//     type, and hamba/avro's *second* map decoder, mapDecoderUnmarshaler
-//     (taken when the destination map's key type implements
-//     encoding.TextUnmarshaler via a pointer receiver), has no such check
-//     at all, and no Config field bounds a map's declared block length
-//     either way. A 4-byte payload declaring a 5-million-entry block,
-//     backed by no further data, decodes 5,000,000 fabricated entries in
-//     several seconds of real CPU time with err == nil
-//     (TestMapDecodeCPUExhaustion_UnsafeTextUnmarshalerPath). Nothing in
-//     this file mitigates this -- there is no Config field to tighten,
-//     unlike arrays, at any input-size policy. This is the strongest
-//     concrete argument for the codec replacement: the iskorotkov/avro
-//     fork adds Config.MaxMapAllocSize, which this class of bug has no
-//     equivalent bound against on hamba/avro at all.
-//  2. GO-2026-5047 (integer overflow): Reader.ReadBlockHeader does
-//     `-length` on a value that decoded to math.MinInt64 (an 11-byte
-//     crafted payload). Negating math.MinInt64 overflows back to
-//     math.MinInt64 -- still negative -- bypassing every positive-ceiling
-//     guard by sign alone, regardless of what any Config field is set to,
-//     and producing len(out) == math.MinInt64, cap(out) == 0, err == nil
-//     (TestArrayBound_NegativeLengthOverflow_Documented). This is not
-//     just an inert negative number: the crafted payload was observed to
-//     leave the process in a state where subsequent, logically-unrelated
-//     boolean comparisons in the same test misbehaved -- consistent with
-//     memory corruption from the unsafe growth path that follows, not
-//     merely a "wrong answer." Treat any successful decode into this
-//     state as unsafe to touch further (no append, no indexing, no
-//     range). Nothing in this file catches this: it happens inside
-//     ReadBlockHeader, upstream of any Config field this package sets.
-//     Verified fixed at the source in github.com/iskorotkov/avro/v2
-//     v2.34.0: Reader.ReadBlockHeader explicitly checks
-//     `length64 <= math.MinInt` before negating and rejects it with an
-//     error, unconditionally, regardless of Config. This is the other
-//     strongest concrete argument for the codec replacement.
+// Replacing the codec closes one of the three advisories unconditionally
+// and makes a second one closable for the first time -- but neither
+// happens just by changing the import path. Verified directly against
+// github.com/iskorotkov/avro/v2 v2.34.0 (not assumed from it being a
+// fork), and re-verified against this package's own reproductions after
+// the swap landed:
 //
-// What the codec replacement does NOT fix on its own (verified against
-// github.com/iskorotkov/avro/v2 v2.34.0, not assumed from its being a
-// fork): the array decoder's allocate-before-validate pattern, and
-// MaxSliceAllocSize being an element count rather than a byte budget, is
-// unchanged in the fork -- the exact TestArrayBound_UnboundedByDefault
-// payload, run against the fork with the same numeric MaxSliceAllocSize
-// value, reproduces identically. The fork's array codec restructured the
-// bound check (compares the current block's declared length against
-// remaining budget before growing, closing a related but distinct
-// cumulative-overflow risk across multiple blocks) but did not change what
-// unit the budget is denominated in, and does not close the padding-
-// inflation bypass either (that bypass is about how a *caller* derives the
-// ceiling it passes to Config, not about which codec enforces it). This
-// package's opt-in, configured-ceiling-derived MaxSliceAllocSize is
-// therefore not superseded by the codec replacement and stays useful under
-// either codec -- but it is real protection only for a caller who has
-// opted into WithMaxInputSize. There is no upstream (hamba or fork) fix
-// for a caller who has not, and there being no such fix even on the fork
-// is a real, open gap worth tracking as a follow-up against
-// github.com/iskorotkov/avro/v2 once this repo depends on it.
+// Three findings, summarized here and detailed in the numbered list below
+// -- "closed by the fork alone" versus "closed only once this file also
+// sets the corresponding Config field":
 //
-// Also not addressed by either codec at any input-size policy: hamba/avro's
-// MaxSliceAllocSize (and the fork's, and its new MaxMapAllocSize) bounds
-// allocation *per field-decode call*, not cumulatively across a whole
-// decoded message. A record with N independent array (or, on the fork,
-// map) fields can each independently claim up to the configured ceiling,
-// multiplying the worst-case allocation by N. There is no whole-message
-// allocation budget hook in either library's public API.
+//   - H1 (GO-2026-5047, ReadBlockHeader overflow -> negative-length slice,
+//     err == nil): closed by the fork alone, unconditionally.
+//   - C1 (2 GiB allocated from 5 wire bytes, array element count vs. byte
+//     budget): left open by the fork alone; closed only once
+//     MaxSliceAllocSize is set.
+//   - C3 (GO-2026-5046/5048, unbounded map cardinality via a
+//     TextUnmarshaler-keyed map): left open by the fork alone; closed only
+//     once MaxMapAllocSize is set (and unclosable at all against
+//     hamba/avro, which has no such field).
 //
-// maxByteSliceSize is a no-op by construction: hamba/avro's
-// getMaxByteSliceSize() resolves 0 to its own built-in default
-// (defaultMaxByteSliceSize, 1 MiB) exactly as our explicit 1*1024*1024
-// does -- setting the field cannot, by construction, ever produce
-// different behavior than leaving it unset. It stays here as documentation
-// of intent (explicit instead of implicit-in-an-archived-dependency), not
-// as a behavior change; TestByteSliceBound_Fires proves the ceiling itself
-// (whichever value resolves it) actually rejects an oversized field.
+// # H1 detail
 //
-// Known compatibility caveat, not fixed here: every avro.Config.Freeze()
-// call this package makes allocates a fresh *TypeResolver (hamba/avro's
-// Freeze() always does this; see config.go). This package's own union
-// handling does not depend on it -- unionResolver in union.go carries its
-// own independent avro.TypeResolver, populated per-Serde via
-// BeforeMarshal/AfterUnmarshal, and every existing test in this package
-// exercises that path, unaffected by this file. But hamba/avro also has
-// its own, separate, resolver-driven union-decoding fallback inside
-// codec_union.go, consulted through the frozen API's resolver field.
-// Before this mitigation, Serde.Unmarshal called the package-level
-// avro.Unmarshal, which resolves through avro.DefaultConfig -- a single
-// process-wide instance any caller's avro.Register(name, obj) populates.
-// Now that Serde.Unmarshal calls into this package's own frozen API
-// instead, any such external avro.Register call no longer reaches this
-// package's decode path: hamba/avro's own union-resolution fallback (not
-// this package's unionResolver) silently degrades to a generic map with
-// no error instead of resolving to the registered Go type. No code in
-// this repository calls avro.Register (grep confirms zero hits outside
-// hamba/avro's own source), so this has no effect on any current caller.
-// It is a real, silent behavior difference for any external module that
-// both imports conduit-commons/schema/avro directly and separately calls
-// hamba/avro's package-level Register -- documented here, not fixed, since
-// no current caller needs a Register passthrough this package does not
-// expose.
+// Closed unconditionally, by the codec itself, regardless of Config.
+// Reader.ReadBlockHeader negated a value that decoded to math.MinInt64 in
+// hamba/avro (an 11-byte crafted payload). Negating math.MinInt64
+// overflows back to math.MinInt64 -- still negative -- bypassing every
+// positive-ceiling guard by sign alone, producing len(out) ==
+// math.MinInt64, cap(out) == 0, err == nil. The fork's ReadBlockHeader
+// explicitly checks `length64 <= math.MinInt` before negating and rejects
+// it with an error, unconditionally -- TestSwap_H1_NegativeLengthOverflow_Fixed
+// proves this against the package's real Serde.Unmarshal path.
+//
+// # C1 detail
+//
+// Left open by the codec swap alone. MaxSliceAllocSize bounds a declared
+// array's cumulative *element count*, not its *byte size*, in both
+// hamba/avro and the fork -- the fork restructured the check (it compares
+// the current block's declared length against remaining budget before
+// growing, closing a related but distinct cumulative-overflow risk across
+// multiple blocks) but kept the same unit. A 5-byte payload declaring an
+// array of 134,217,728 null items allocates the full backing array with
+// err == nil unless MaxSliceAllocSize is set. Closed by this file always
+// setting MaxSliceAllocSize (see "Default allocation ceilings" below) --
+// TestSwap_C1_UnboundedByDefault_WouldFailPreSwap documents the
+// pre-swap-equivalent failure mode and TestSwap_C1_BoundedByDefaultConfig
+// proves the post-swap default rejects it.
+//
+// # C3 detail
+//
+// Left open by the codec swap alone, and it is the strongest concrete
+// argument for having swapped codecs at all: hamba/avro has no Config
+// field that bounds a map's declared block length, at any input-size
+// policy -- MaxMapAllocSize does not exist on hamba/avro, full stop, so
+// this finding was unclosable there regardless of how this package was
+// configured. The fork adds Config.MaxMapAllocSize. A 4-byte payload
+// declaring a multi-million-entry map block, decoded into a map keyed by a
+// type implementing encoding.TextUnmarshaler (mapDecoderUnmarshaler,
+// reachable through Serde.Unmarshal's caller-controlled destination type),
+// fabricates that many entries from no further input, several seconds of
+// real CPU time, err == nil, unless MaxMapAllocSize is set. Closed by this
+// file always setting MaxMapAllocSize --
+// TestSwap_C3_UnboundedByDefault_WouldFailPreSwap and
+// TestSwap_C3_BoundedByDefaultConfig.
+// Also unaddressed by either codec at any Config: neither library bounds
+// allocation cumulatively across a whole decoded message, only per
+// field-decode call. A record with N independent array or map fields can
+// each independently claim up to the configured ceiling, multiplying the
+// worst case by N. There is no whole-message allocation budget hook in
+// either library's public API.
+//
+// # Default allocation ceilings: real defaults, not opt-in
+//
+// Unlike MaxInputSize (Pass 3 above), MaxSliceAllocSize and MaxMapAllocSize
+// are NOT unlimited by default. Once the codec swap landed, these two
+// fields are the only remaining closure for C1 and C3 above -- the
+// strongest concrete security argument for the swap was that
+// MaxMapAllocSize exists at all on the fork. Shipping them opt-in-only,
+// mirroring MaxInputSize's reasoning, would mean the swap fixes nothing by
+// default beyond H1: an operator who never calls WithMaxInputSize (the
+// common case, since that option's own default is unlimited) would decode
+// with unset MaxSliceAllocSize/MaxMapAllocSize, which the fork resolves to
+// maxAllocSize (1<<48 on 64-bit) -- functionally the same unbounded
+// exposure as hamba/avro today. That would make the swap a compliance
+// exercise (govulncheck goes quiet) without an accompanying reduction in
+// real exposure, which is not the point of doing it.
+//
+// The reason MaxInputSize and these two are not symmetric is the unit each
+// is denominated in. MaxInputSize bounds *bytes*, and this repo has no
+// telemetry ruling out a legitimate multi-hundred-MiB record (Pass 1/2's
+// citations). MaxSliceAllocSize and MaxMapAllocSize bound *element/entry
+// counts*, a different axis: a Conduit record's top-level array or map
+// field holding on the order of a million entries is already an extreme,
+// almost certainly batch-shaped payload, not an ordinary large field --
+// unlike a single large byte/string value, which is a completely mundane
+// shape (see MaxByteSliceSize above, and jsonb/bytea in Pass 1). A default
+// on this axis can be generous enough to be invisible to every real record
+// shape this project has ever seen while still bounding the worst case an
+// attacker can force from a handful of wire bytes to a fixed, tolerable
+// amount of memory and CPU -- which is not true of a byte-budget default.
+//
+// initialDefaultMaxAllocSize = 1,000,000 (elements/entries), applied to
+// both MaxSliceAllocSize and MaxMapAllocSize (via
+// defaultMaxSliceAllocSize/defaultMaxMapAllocSize, below) unless changed
+// process-wide by SetDefaultMaxSliceAllocSize/SetDefaultMaxMapAllocSize.
+// Justified as an element count, not a byte budget, per the reasoning
+// above:
+//
+//   - Array worst case, widest common element type: decoding into []any
+//     costs 16 bytes/element on 64-bit (a 2-word interface header: type
+//     pointer + data pointer). 1,000,000 * 16 bytes = 16,000,000 bytes,
+//     ~15.3 MiB, allocated as a single backing array before a single
+//     element is decoded (the array decoder's allocate-before-validate
+//     pattern -- see C1 above -- is unchanged by the ceiling; the ceiling
+//     bounds how large that up-front allocation can be, not whether one
+//     happens).
+//   - Map worst case: measured directly (not estimated), decoding
+//     1,000,000 entries into a map[string]any with realistic short string
+//     keys and int64 values costs ~114 bytes/entry including Go's map
+//     bucket overhead -- ~109 MiB. The CPU cost of the vulnerable
+//     TextUnmarshaler-keyed decode path (C3 above) was measured at
+//     ~220 ns/entry (20,000,000 entries took 4.41s of real CPU against an
+//     unbounded Config), preserved as a reproduction in this file's git
+//     history and re-run as part of TestSwap_C3_UnboundedByDefault_WouldFailPreSwap;
+//     at the 1,000,000-entry default that bounds a single malicious map
+//     field to ~220 ms of CPU, not the multi-second-to-unbounded cost an
+//     attacker could force before this ceiling existed.
+//   - This is a per-field-decode-call bound, not a per-message one (see
+//     above): a record with many independent array/map fields multiplies
+//     both numbers by the field count. Tracked as a known, documented gap
+//     rather than solved here -- there is no whole-message allocation
+//     budget hook in the codec's public API to hang a fix on.
+//
+// An operator with a genuine need for a single field larger than this
+// (uncommon, but not impossible -- e.g. a bulk-embedding vector batch) can
+// raise the ceiling one of two ways:
+//
+//   - Per Serde, via WithMaxSliceAllocSize / WithMaxMapAllocSize, for a
+//     caller that constructs its own Serde through Parse/SerdeForType.
+//   - Process-wide, via SetDefaultMaxSliceAllocSize /
+//     SetDefaultMaxMapAllocSize, for the path that has no Option plumbing
+//     of its own: schema.Schema.Unmarshal, which resolves a Serde through
+//     schema.globalSerdeCache -> schema.KnownSerdeFactories[TypeAvro].Parse
+//     -> avro.Parse(s) with no options (schema/schema.go). See those
+//     functions' doc comments for the race-free mechanism and its
+//     limitations (in particular: it does not retroactively change Serdes
+//     already constructed, including ones already cached by fingerprint).
+//
+// There is deliberately no "unlimited" sentinel for either axis (n <= 0 is
+// rejected by WithMaxSliceAllocSize / WithMaxMapAllocSize /
+// SetDefaultMaxSliceAllocSize / SetDefaultMaxMapAllocSize, returned as an
+// error, never silently treated as "unlimited" or silently ignored) --
+// unlike MaxInputSize, an unbounded value on this axis is never the right
+// default or a supportable override, since it is the control that makes
+// C1/C3 closable at all.
+//
+// When MaxInputSize is also configured (WithMaxInputSize), it tightens
+// both ceilings further when it is the smaller bound: every array/map
+// element or entry of a non-null type costs at least one wire byte, so a
+// declared count exceeding the total number of bytes the caller was
+// allowed to send at all is provably impossible for real data -- the same
+// soundness argument Pass 3 makes, generalized to also cover the map case
+// the fork newly makes expressible.
+//
+// That soundness argument has one documented exception: a container whose
+// element/value type is exactly the Avro `null` type (not a union with a
+// null branch -- a union's branch index still costs a wire byte per
+// element) costs zero wire bytes per element, so a declared count for such
+// a container is not bounded by input size at all -- a 50,000-null array
+// encodes to nothing but its block-length header. buildDecodeAPI skips the
+// MaxInputSize-derived tightening (falling back to the configured/default
+// MaxSliceAllocSize/MaxMapAllocSize instead, still enforced, just not
+// additionally tightened) for any Serde whose schema contains such a
+// container anywhere in its tree -- see schemaHasZeroCostContainer.
+// TestMaxInputSize_TighteningSkipped_ZeroCostArrayItems is the regression
+// test: it proves a legitimate small-input, many-null-element payload that
+// the (unconditional) tightening used to reject now decodes.
 const (
 	// maxByteSliceSize bounds a single `bytes`/`string` field. See the
-	// package doc above: this is a no-op by construction (hamba/avro
-	// resolves an unset field to the same 1 MiB default), kept only for
-	// documentation.
+	// package doc above: this is a no-op by construction (both hamba/avro
+	// and the fork resolve an unset field to the same 1 MiB default), kept
+	// only for documentation.
 	maxByteSliceSize = 1 * 1024 * 1024
+
+	// initialDefaultMaxAllocSize is the built-in starting value for
+	// defaultMaxSliceAllocSize / defaultMaxMapAllocSize (below), applied to
+	// MaxSliceAllocSize and MaxMapAllocSize when no WithMaxSliceAllocSize /
+	// WithMaxMapAllocSize override is given and no
+	// SetDefaultMaxSliceAllocSize / SetDefaultMaxMapAllocSize call has
+	// changed the package-wide default. See "Default allocation ceilings"
+	// above for the worst-case heap and CPU math this value is justified
+	// against.
+	initialDefaultMaxAllocSize = 1_000_000
 )
 
-// Option configures a Serde constructed by Parse or SerdeForType.
-type Option func(*serdeOptions)
+// defaultMaxSliceAllocSize and defaultMaxMapAllocSize back the package-wide
+// defaults applied to MaxSliceAllocSize/MaxMapAllocSize when a Serde is
+// constructed with no WithMaxSliceAllocSize/WithMaxMapAllocSize override.
+// Left at their Go zero value (0) until SetDefaultMaxSliceAllocSize/
+// SetDefaultMaxMapAllocSize is called -- effectiveDefaultMaxSliceAllocSize/
+// effectiveDefaultMaxMapAllocSize below treat 0 as "never overridden,
+// use initialDefaultMaxAllocSize", so no package-level init function is
+// needed to seed a non-zero starting value (gochecknoinits). See those
+// Set* functions' doc comments for why this exists (the
+// schema.Schema.Unmarshal path has no per-call Option plumbing to reach
+// WithMaxSliceAllocSize/WithMaxMapAllocSize) and what it does and does not
+// affect. atomic.Int64, not a plain int guarded by a mutex, so reads on
+// the hot Parse/SerdeForType construction path never block a concurrent
+// writer and vice versa; every Serde still freezes its own immutable
+// avro.API at construction time (see buildDecodeAPI), so these variables
+// are only ever read, never held across a decode call.
+var (
+	defaultMaxSliceAllocSize atomic.Int64
+	defaultMaxMapAllocSize   atomic.Int64
+)
 
-type serdeOptions struct {
-	maxInputSize int
+// effectiveDefaultMaxSliceAllocSize and effectiveDefaultMaxMapAllocSize
+// resolve the current package-wide default, falling back to
+// initialDefaultMaxAllocSize for the zero value (SetDefaultMax*AllocSize
+// never called).
+func effectiveDefaultMaxSliceAllocSize() int {
+	if v := defaultMaxSliceAllocSize.Load(); v > 0 {
+		return int(v)
+	}
+	return initialDefaultMaxAllocSize
 }
 
-func resolveOptions(opts []Option) serdeOptions {
+func effectiveDefaultMaxMapAllocSize() int {
+	if v := defaultMaxMapAllocSize.Load(); v > 0 {
+		return int(v)
+	}
+	return initialDefaultMaxAllocSize
+}
+
+// SetDefaultMaxSliceAllocSize changes the package-wide default ceiling
+// (initially initialDefaultMaxAllocSize, see the package doc's "Default
+// allocation ceilings") applied to MaxSliceAllocSize for every Serde
+// subsequently constructed by Parse or SerdeForType without an explicit
+// WithMaxSliceAllocSize override. n must be > 0; n <= 0 returns an error
+// and leaves the current default unchanged -- there is no "unlimited"
+// value for this axis, see the package doc for why.
+//
+// This is the escape hatch for the one construction path that has no
+// per-call Option of its own: schema.Schema.Unmarshal resolves a Serde
+// through schema.globalSerdeCache -> schema.KnownSerdeFactories[TypeAvro].
+// Parse -> avro.Parse(s), with no options threaded through
+// schema.SerdeFactory. A caller who has determined that their deployment
+// legitimately needs a larger single array field on that path can call
+// SetDefaultMaxSliceAllocSize once, process-wide (e.g. at startup, before
+// any pipeline runs), rather than being stuck with
+// initialDefaultMaxAllocSize with no way to reach it.
+//
+// Race-free: backed by atomic.Int64, safe to call concurrently with
+// Parse/SerdeForType/Unmarshal on any goroutine. It is not, however,
+// retroactive: it changes what effectiveDefaultMaxSliceAllocSize() returns
+// for Serdes constructed *after* the call, not the frozen avro.API of a Serde
+// already constructed -- each Serde's decodeAPI is built once, at
+// construction, from whatever the default (or override) resolved to at
+// that moment (see buildDecodeAPI). In particular, a schema already parsed
+// and cached in schema.globalSerdeCache keeps its existing ceiling until
+// that cache entry expires (schema.globalSerdeCache.MaxAge, 4 hours) or is
+// otherwise evicted and re-parsed. Call this as early as possible in a
+// process's lifetime, ideally before any schema has been parsed at all, to
+// avoid that window.
+func SetDefaultMaxSliceAllocSize(n int) error {
+	if n <= 0 {
+		return fmt.Errorf("%w: SetDefaultMaxSliceAllocSize requires n > 0, got %d", ErrInvalidOption, n)
+	}
+	defaultMaxSliceAllocSize.Store(int64(n))
+	return nil
+}
+
+// SetDefaultMaxMapAllocSize is SetDefaultMaxSliceAllocSize's counterpart
+// for MaxMapAllocSize. See SetDefaultMaxSliceAllocSize's doc comment for
+// the full reasoning, the race-free/non-retroactive guarantees, and why
+// this exists at all (schema.Schema.Unmarshal has no per-call Option
+// plumbing to reach WithMaxMapAllocSize).
+func SetDefaultMaxMapAllocSize(n int) error {
+	if n <= 0 {
+		return fmt.Errorf("%w: SetDefaultMaxMapAllocSize requires n > 0, got %d", ErrInvalidOption, n)
+	}
+	defaultMaxMapAllocSize.Store(int64(n))
+	return nil
+}
+
+// Option configures a Serde constructed by Parse or SerdeForType.
+type Option func(*serdeOptions) error
+
+type serdeOptions struct {
+	maxInputSize      int
+	maxSliceAllocSize int // 0 = use defaultMaxSliceAllocSize; see WithMaxSliceAllocSize
+	maxMapAllocSize   int // 0 = use defaultMaxMapAllocSize; see WithMaxMapAllocSize
+}
+
+func resolveOptions(opts []Option) (serdeOptions, error) {
 	var o serdeOptions // maxInputSize: 0, i.e. unlimited, by default -- see limits.go's package doc
 	for _, opt := range opts {
-		opt(&o)
+		if err := opt(&o); err != nil {
+			return serdeOptions{}, err
+		}
 	}
-	return o
+	return o, nil
 }
 
 // WithMaxInputSize makes a Serde reject Unmarshal input larger than n bytes
 // with ErrInputTooLarge, before it reaches the underlying decoder. n <= 0
 // means unlimited, which is also the default when this option is not
-// passed at all.
-//
-// There is no default ceiling. See limits.go's package doc for the full
-// reasoning; in short: nothing on Conduit's data path bounds record size
-// today (hashicorp/go-plugin's client sets
-// grpc.MaxCallRecvMsgSize(math.MaxInt32), and built-in connectors never
-// cross gRPC at all), this package has no telemetry on real-world record
-// shapes across every Conduit deployment, and picking a default ceiling
-// anyway means guessing with someone else's pipeline -- silently breaking
-// a legitimate large record the day it shows up.
+// passed at all -- unlike WithMaxSliceAllocSize/WithMaxMapAllocSize below,
+// n <= 0 here is a valid, meaningful value (not an error), because
+// "unlimited" is a legitimate and, in fact, the recommended default on
+// this axis. See limits.go's package doc for the full reasoning; in short:
+// nothing on Conduit's data path bounds record size today (hashicorp/
+// go-plugin's client sets grpc.MaxCallRecvMsgSize(math.MaxInt32), and
+// built-in connectors never cross gRPC at all), this package has no
+// telemetry on real-world record shapes across every Conduit deployment,
+// and picking a default ceiling anyway means guessing with someone else's
+// pipeline -- silently breaking a legitimate large record the day it shows
+// up. This is unlike WithMaxSliceAllocSize / WithMaxMapAllocSize below,
+// which do have non-zero defaults; see "Default allocation ceilings" in
+// the package doc for why that asymmetry is deliberate.
 //
 // Opt into this if the Serde will decode bytes from a source this operator
 // does not fully trust (e.g. records crossing a boundary from an external
 // or third-party upstream) and the operator can state a real ceiling for
-// their own record shapes. Treat it as belt-and-braces on top of the codec
-// fix (see the design doc), not a substitute for it: setting this also
-// tightens the decoder's array-allocation ceiling (MaxSliceAllocSize) to
-// n, which is a sound bound only because Unmarshal already rejects any
-// input longer than n before decoding starts -- every array element of a
-// non-null type costs at least one wire byte, so a declared element count
-// exceeding n is provably impossible for real data once n itself is
-// enforced up front. Leaving this unset (the default) applies no
-// array-allocation ceiling either, for the same reason: this package
-// cannot know what a legitimate array field looks like any more than it
-// can know what a legitimate record size looks like.
+// their own record shapes. When set, this also tightens
+// MaxSliceAllocSize/MaxMapAllocSize further, to n, whenever n is smaller
+// than their own (already-enforced) default or override, UNLESS the
+// Serde's schema contains an array/map whose item/value type is exactly
+// the Avro `null` type (see the package doc's exception to this
+// soundness argument, and schemaHasZeroCostContainer) -- sound in the
+// general case because Unmarshal already rejects any input longer than n
+// before decoding starts, and every array/map element of a non-null type
+// costs at least one wire byte, so a declared count exceeding n is
+// provably impossible for real data once n itself is enforced up front.
 //
 // This also replaces what was, in an earlier version of this mitigation,
 // an exported mutable package variable (avro.MaxInputSize) read by every
@@ -291,18 +464,124 @@ func resolveOptions(opts []Option) serdeOptions {
 // the race and narrows the blast radius of an override to the Serde it
 // was requested on instead of the whole process.
 func WithMaxInputSize(n int) Option {
-	return func(o *serdeOptions) { o.maxInputSize = n }
+	return func(o *serdeOptions) error {
+		o.maxInputSize = n
+		return nil
+	}
 }
 
-// buildDecodeAPI returns the frozen hamba/avro API a Serde with the given
-// configured maxInputSize should decode with. See the package doc above
-// and WithMaxInputSize for why MaxSliceAllocSize is only set (to
-// maxInputSize itself) when maxInputSize is a real, enforced ceiling, and
-// left at hamba/avro's own default otherwise.
-func buildDecodeAPI(maxInputSize int) avro.API {
-	cfg := avro.Config{MaxByteSliceSize: maxByteSliceSize}
-	if maxInputSize > 0 {
-		cfg.MaxSliceAllocSize = maxInputSize
+// WithMaxSliceAllocSize overrides, for this Serde only, the package-wide
+// default ceiling (defaultMaxSliceAllocSize, see the package doc) on the
+// cumulative element count a single declared Avro array field may allocate
+// before this package rejects it. n must be > 0, checked eagerly: Parse/
+// SerdeForType return an error immediately (wrapping ErrInvalidOption) if
+// n <= 0, rather than silently falling back to the default -- there is no
+// "unlimited" value for this option, unlike WithMaxInputSize, and a
+// caller-supplied n <= 0 (e.g. an unvalidated, accidentally-zero computed
+// value) is far more likely to be a bug at the call site than a deliberate
+// request for "unlimited," so this fails closed and loud instead of
+// silently substituting a value the caller didn't ask for.
+//
+// Use this only if a real record shape needs a single array field larger
+// than the default (~15.3 MiB worst case for []any at the default); most
+// callers should not need it. For the one construction path that has no
+// Option of its own (schema.Schema.Unmarshal), see
+// SetDefaultMaxSliceAllocSize instead.
+func WithMaxSliceAllocSize(n int) Option {
+	return func(o *serdeOptions) error {
+		if n <= 0 {
+			return fmt.Errorf("%w: WithMaxSliceAllocSize requires n > 0, got %d", ErrInvalidOption, n)
+		}
+		o.maxSliceAllocSize = n
+		return nil
+	}
+}
+
+// WithMaxMapAllocSize overrides, for this Serde only, the package-wide
+// default ceiling (defaultMaxMapAllocSize, see the package doc) on the
+// cumulative entry count a single declared Avro map field may allocate
+// before this package rejects it. n must be > 0, checked eagerly, for the
+// same reasons as WithMaxSliceAllocSize -- see its doc comment.
+//
+// Use this only if a real record shape needs a single map field larger
+// than the default (~109 MiB measured worst case for map[string]any at the
+// default); most callers should not need it. For the one construction path
+// that has no Option of its own (schema.Schema.Unmarshal), see
+// SetDefaultMaxMapAllocSize instead.
+func WithMaxMapAllocSize(n int) Option {
+	return func(o *serdeOptions) error {
+		if n <= 0 {
+			return fmt.Errorf("%w: WithMaxMapAllocSize requires n > 0, got %d", ErrInvalidOption, n)
+		}
+		o.maxMapAllocSize = n
+		return nil
+	}
+}
+
+// schemaHasZeroCostContainer reports whether s contains, anywhere in its
+// tree, an array or map whose element/value type is exactly the Avro
+// `null` type -- as opposed to, say, a union with a null branch, which
+// still costs at least one wire byte per element for the union's branch
+// index. Such a container can encode an arbitrarily large declared element
+// count in a handful of wire bytes (a 50,000-element array of `null`
+// encodes to nothing but its block-length header), which is exactly the
+// case the MaxInputSize-derived tightening in buildDecodeAPI is unsound
+// for: see the package doc's "one documented exception" paragraph. The
+// check is schema-wide, not per-field, because the tightened ceiling
+// itself (avro.Config.MaxSliceAllocSize/MaxMapAllocSize) applies uniformly
+// to every array/map this Serde's decodeAPI decodes, not to one field in
+// isolation -- so if any container anywhere in the schema is zero-cost,
+// the tightening is skipped for the whole Serde rather than silently
+// applied unsoundly to just that one field.
+func schemaHasZeroCostContainer(s avro.Schema) bool {
+	found := false
+	traverseSchema(s, func(p path) {
+		if found || len(p) == 0 {
+			return
+		}
+		switch t := p[len(p)-1].schema.(type) {
+		case *avro.ArraySchema:
+			if t.Items().Type() == avro.Null {
+				found = true
+			}
+		case *avro.MapSchema:
+			if t.Values().Type() == avro.Null {
+				found = true
+			}
+		}
+	})
+	return found
+}
+
+// buildDecodeAPI returns the frozen avro.API a Serde with the given schema
+// and options should decode with. See the package doc above for why
+// MaxSliceAllocSize/MaxMapAllocSize default to the package-wide
+// defaultMaxSliceAllocSize/defaultMaxMapAllocSize rather than being
+// unbounded, why that default differs from MaxInputSize's, how a
+// configured MaxInputSize additionally tightens both when it is the
+// smaller bound, and the zero-cost-container exception to that tightening
+// (schemaHasZeroCostContainer).
+func buildDecodeAPI(schema avro.Schema, o serdeOptions) avro.API {
+	sliceLimit := effectiveDefaultMaxSliceAllocSize()
+	if o.maxSliceAllocSize > 0 {
+		sliceLimit = o.maxSliceAllocSize
+	}
+	mapLimit := effectiveDefaultMaxMapAllocSize()
+	if o.maxMapAllocSize > 0 {
+		mapLimit = o.maxMapAllocSize
+	}
+	if o.maxInputSize > 0 && !schemaHasZeroCostContainer(schema) {
+		if o.maxInputSize < sliceLimit {
+			sliceLimit = o.maxInputSize
+		}
+		if o.maxInputSize < mapLimit {
+			mapLimit = o.maxInputSize
+		}
+	}
+	cfg := avro.Config{
+		MaxByteSliceSize:  maxByteSliceSize,
+		MaxSliceAllocSize: sliceLimit,
+		MaxMapAllocSize:   mapLimit,
 	}
 	return cfg.Freeze()
 }

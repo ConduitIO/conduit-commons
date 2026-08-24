@@ -24,13 +24,25 @@ var (
 	// a Serde's configured input-size ceiling (see WithMaxInputSize in
 	// limits.go; there is no ceiling, and this error is never returned,
 	// unless one was explicitly configured). See limits.go for why this
-	// bound exists: it is one part of the near-term mitigation for hamba/avro's
-	// unfixed decoder advisories (GO-2026-5046, GO-2026-5047, GO-2026-5048),
-	// decided in
+	// bound exists: it started as part of the near-term mitigation for
+	// three decoder advisories in the previously used, now-archived
+	// github.com/hamba/avro/v2 (GO-2026-5046, GO-2026-5047, GO-2026-5048),
+	// and remains permanent, optional defense-in-depth after the codec was
+	// replaced with the maintained github.com/iskorotkov/avro/v2 fork, per
 	// docs/design-documents/20260823-avro-codec-archived-decoder-advisories.md
 	// in ConduitIO/conduit -- see that file's package doc for which
-	// advisories this does and does not mitigate. Failing closed here
-	// rather than truncating or otherwise coercing the input is deliberate:
-	// this package never silently mangles data.
+	// advisories the codec swap does and does not close on its own.
+	// Failing closed here rather than truncating or otherwise coercing the
+	// input is deliberate: this package never silently mangles data.
 	ErrInputTooLarge = errors.New("avro input exceeds maximum allowed size")
+
+	// ErrInvalidOption is returned by Parse/SerdeForType (wrapped with
+	// context identifying which option and value) when an Option given to
+	// them rejects its own argument -- currently WithMaxSliceAllocSize,
+	// WithMaxMapAllocSize, and the package-level SetDefaultMaxSliceAllocSize
+	// / SetDefaultMaxMapAllocSize all reject n <= 0 this way, since neither
+	// has an "unlimited" value (see limits.go's package doc, "Default
+	// allocation ceilings"). This is a construction-time error, never
+	// returned by Marshal/Unmarshal.
+	ErrInvalidOption = errors.New("invalid avro serde option")
 )
