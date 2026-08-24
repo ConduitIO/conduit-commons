@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/conduitio/conduit-commons/opencdc"
-	"github.com/hamba/avro/v2"
+	"github.com/iskorotkov/avro/v2"
 )
 
 var (
@@ -58,6 +58,21 @@ type extractor struct{}
 //   - If Extract encounters a value with the type of opencdc.StructuredData it
 //     will treat it as a record and extract a record schema, where each key in
 //     the structured data is extracted into its own record field.
+//
+// avro.NewUnionSchema (github.com/iskorotkov/avro/v2) errors on a
+// zero-length type list, a case new to this package's decode path since
+// the codec swap (hamba/avro's equivalent constructor did not validate
+// this). All six call sites in this file that build a union
+// (extractPointer, extractInterface, extractSlice, extractMap, and both
+// branches of deduplicate) are structurally guaranteed to pass at least
+// one type: extractPointer/extractInterface/extractSlice/extractMap all
+// seed their type list with a NullSchema before appending anything else,
+// and deduplicate's two callers each pass it exactly two schemas, whose
+// deduplicated output can shrink to one but never to zero. This error
+// path is therefore unreachable through this file as written, verified by
+// inspection rather than by a test that would otherwise have no way to
+// construct the zero-length input in the first place -- documented here,
+// accepted as dead code, not exercised.
 func (e extractor) Extract(v any) (avro.Schema, error) {
 	return e.extract([]string{"record"}, reflect.ValueOf(v), reflect.TypeOf(v))
 }

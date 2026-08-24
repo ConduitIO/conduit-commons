@@ -18,7 +18,7 @@ import (
 	"fmt"
 
 	"github.com/goccy/go-json"
-	"github.com/hamba/avro/v2"
+	"github.com/iskorotkov/avro/v2"
 )
 
 func ExampleBuilder() {

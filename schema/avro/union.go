@@ -19,13 +19,15 @@ import (
 	"reflect"
 
 	"github.com/conduitio/conduit-commons/opencdc"
-	"github.com/hamba/avro/v2"
+	"github.com/iskorotkov/avro/v2"
 	"github.com/modern-go/reflect2"
 )
 
 // unionResolver provides hooks before marshaling and after unmarshaling a value
 // with an Avro schema, which make sure that values under the schema type Union
-// are in the correct shape (see https://github.com/hamba/avro#unions).
+// are in the correct shape (see https://github.com/hamba/avro#unions --
+// github.com/iskorotkov/avro/v2 is a fork and shares this union
+// representation unchanged).
 // NB: It currently supports union types nested in maps, but not nested in
 // slices. For example, hooks will not work for values like []any{[]any{"foo"}}.
 type unionResolver struct {
@@ -252,8 +254,10 @@ func (r unionResolver) afterUnmarshalNullUnionSubstitutions(val any, substitutio
 	return substitutions, nil
 }
 
-// substitute substitutes maps inserted by hamba/avro's Unmarshal() function
-// with actual values. The input map (return by hamba/avro's Unmarshal())
+// substitute substitutes maps inserted by the underlying codec's Unmarshal()
+// function (github.com/iskorotkov/avro/v2, a fork of hamba/avro that shares
+// this behavior unchanged) with actual values. The input map (returned by
+// Unmarshal())
 // contain values encoded as maps with a single key:value pair, where
 // key is the type name (e.g. {"int":1}). We want to replace all these
 // maps with the actual value (e.g. 1).

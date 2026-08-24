@@ -21,7 +21,7 @@ import (
 	"sort"
 
 	"github.com/conduitio/conduit-commons/opencdc"
-	"github.com/hamba/avro/v2"
+	"github.com/iskorotkov/avro/v2"
 )
 
 type (

@@ -18,7 +18,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/hamba/avro/v2"
+	"github.com/iskorotkov/avro/v2"
 )
 
 // Builder builds avro.RecordSchema instances and marshals them into JSON.
@@ -44,6 +44,26 @@ func NewBuilder(name, namespace string) *Builder {
 // AddField adds a new field with the given name, schema and schema options.
 // If creating the field returns an error, the error is saved, joined with
 // other errors (if any), and returned when marshaling to JSON.
+//
+// Breaking change (github.com/iskorotkov/avro/v2 codec swap): typ and opts
+// are avro.Schema/avro.SchemaOption from this package's codec dependency,
+// which changed import path from github.com/hamba/avro/v2 to
+// github.com/iskorotkov/avro/v2. Because Go requires exact type identity
+// for a concrete value to satisfy an interface parameter's method set
+// (not merely a structurally identical shape from a different package), a
+// caller that imports github.com/hamba/avro/v2 directly and constructs an
+// avro.Schema/avro.SchemaOption value to pass into this method no longer
+// compiles after upgrading past this change -- the hamba-typed value's
+// methods return hamba-defined named types (e.g. its own Type), which do
+// not satisfy the fork's Schema interface even though the two packages'
+// type shapes are identical (it is a fork). There is no known caller of
+// this pattern within ConduitIO/* (grep confirms Builder is used only
+// internally within this repository today), but this is a public,
+// exported method signature and the break is real for any external
+// consumer that does. Migration: replace the github.com/hamba/avro/v2
+// import with github.com/iskorotkov/avro/v2 at the call site; the two
+// packages' schema construction APIs (NewPrimitiveSchema, NewRecordSchema,
+// NewUnionSchema, etc.) are drop-in compatible.
 func (b *Builder) AddField(name string, typ avro.Schema, opts ...avro.SchemaOption) *Builder {
 	f, err := avro.NewField(name, typ, opts...)
 	if err != nil {
@@ -58,6 +78,10 @@ func (b *Builder) AddField(name string, typ avro.Schema, opts ...avro.SchemaOpti
 // Build builds the underlying schema.
 // Errors that occurred while creating fields or constructing
 // the schema will be returned as a joined error.
+//
+// Breaking change: the returned *avro.RecordSchema is now
+// github.com/iskorotkov/avro/v2's type, not github.com/hamba/avro/v2's --
+// see AddField's doc comment for the full reasoning and migration note.
 func (b *Builder) Build() (*avro.RecordSchema, error) {
 	if b.errs != nil {
 		return nil, errors.Join(b.errs...)

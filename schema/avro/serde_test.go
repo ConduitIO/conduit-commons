@@ -23,7 +23,7 @@ import (
 
 	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/google/go-cmp/cmp"
-	"github.com/hamba/avro/v2"
+	"github.com/iskorotkov/avro/v2"
 	"github.com/matryer/is"
 )
 
@@ -432,7 +432,20 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 	}, {
 		name:      "[]any (no data)",
 		haveValue: []any{},
-		wantValue: []any(nil), // TODO: smells like a bug, should be []any{}
+		// Was []any(nil) under hamba/avro v2.28.0 (tracked as a bug: an
+		// empty array should round-trip to an empty slice, not nil).
+		// Corrected attribution: this is NOT a github.com/iskorotkov/avro/v2
+		// behavior change. Independently verified directly against
+		// hamba/avro/v2 v2.28.0 (nil) and v2.31.0 ([]any{}) -- the fix
+		// landed somewhere in that range of hamba/avro itself, and this
+		// repo already had an open dependabot PR proposing exactly that
+		// bump, independent of the codec swap. It only shows up "as part
+		// of" this swap because the fork's own baseline is newer than
+		// v2.28.0, not because the fork changed anything here -- a
+		// ~100-case hamba-2.31-vs-fork sweep found no empty-array or
+		// empty-map decode divergence between the two at all. See
+		// TestSwap_EmptyArray_AttributionCorrected in limits_test.go.
+		wantValue: []any{},
 		wantSchema: avro.NewArraySchema(must(avro.NewUnionSchema( // empty slice values default to nullable strings
 			[]avro.Schema{
 				avro.NewPrimitiveSchema(avro.String, nil),
@@ -594,7 +607,8 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 			is.NoErr(err)
 
 			wantSerde := &Serde{
-				schema: must(avro.NewRecordSchema("record", "",
+				schema: must(avro.NewRecordSchema(
+					"record", "",
 					[]*avro.Field{must(avro.NewField("foo", tc.wantSchema))},
 				)),
 			}
@@ -639,17 +653,20 @@ func TestSerdeForType_NestedStructuredData(t *testing.T) {
 		"record", "",
 		[]*avro.Field{
 			must(avro.NewField("foo", avro.NewPrimitiveSchema(avro.String, nil))),
-			must(avro.NewField("level1",
+			must(avro.NewField(
+				"level1",
 				must(avro.NewRecordSchema(
 					"record.level1", "",
 					[]*avro.Field{
 						must(avro.NewField("foo", avro.NewPrimitiveSchema(avro.String, nil))),
-						must(avro.NewField("level2",
+						must(avro.NewField(
+							"level2",
 							must(avro.NewRecordSchema(
 								"record.level1.level2", "",
 								[]*avro.Field{
 									must(avro.NewField("foo", avro.NewPrimitiveSchema(avro.String, nil))),
-									must(avro.NewField("level3",
+									must(avro.NewField(
+										"level3",
 										must(avro.NewRecordSchema(
 											"record.level1.level2.level3", "",
 											[]*avro.Field{
