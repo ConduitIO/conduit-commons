@@ -19,4 +19,18 @@ import "errors"
 var (
 	ErrUnsupportedType     = errors.New("unsupported avro type")
 	ErrSchemaValueMismatch = errors.New("avro schema doesn't match supplied value")
+
+	// ErrInputTooLarge is returned by Serde.Unmarshal when the input exceeds
+	// a Serde's configured input-size ceiling (see WithMaxInputSize in
+	// limits.go; there is no ceiling, and this error is never returned,
+	// unless one was explicitly configured). See limits.go for why this
+	// bound exists: it is one part of the near-term mitigation for hamba/avro's
+	// unfixed decoder advisories (GO-2026-5046, GO-2026-5047, GO-2026-5048),
+	// decided in
+	// docs/design-documents/20260823-avro-codec-archived-decoder-advisories.md
+	// in ConduitIO/conduit -- see that file's package doc for which
+	// advisories this does and does not mitigate. Failing closed here
+	// rather than truncating or otherwise coercing the input is deliberate:
+	// this package never silently mangles data.
+	ErrInputTooLarge = errors.New("avro input exceeds maximum allowed size")
 )
