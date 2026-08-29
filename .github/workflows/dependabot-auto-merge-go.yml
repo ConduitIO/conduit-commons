@@ -1,5 +1,14 @@
 # This action automatically merges dependabot PRs that update go dependencies (only patch and minor updates).
-# Based on: https://docs.github.com/en/code-security/supply-chain-security/keeping-your-dependencies-updated-automatically/automating-dependabot-with-github-actions#enable-auto-merge-on-a-pull-request 
+# Based on: https://docs.github.com/en/code-security/supply-chain-security/keeping-your-dependencies-updated-automatically/automating-dependabot-with-github-actions#enable-auto-merge-on-a-pull-request
+#
+# EXCLUDED DEPS (v0.20 decision, 2026-08-27): a small set of load-bearing
+# dependencies never auto-merges. Bumps to these need a human review because
+# they sit under data integrity and wire-format surfaces:
+#   github.com/jackc/pgx/v5        - backs position and state storage
+#   github.com/dgraph-io/badger/v4 - the state store
+#   google.golang.org/protobuf     - the gRPC/protocol wire format
+#   modernc.org/sqlite             - state backend
+# Excluded PRs get a comment saying so; the human merges them when reviewed.
 
 name: Dependabot auto-merge
 on:
@@ -22,17 +31,41 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
+      - name: Check exclusion list
+        id: excluded
+        env:
+          NAMES: ${{ steps.metadata.outputs.dependency-names }}
+          EXCLUDED: "github.com/jackc/pgx/v5,github.com/dgraph-io/badger/v4,google.golang.org/protobuf,modernc.org/sqlite"
+        run: |
+          excluded="false"
+          IFS=',' read -ra names <<< "$NAMES"
+          IFS=',' read -ra blocked <<< "$EXCLUDED"
+          for n in "${names[@]}"; do
+            for b in "${blocked[@]}"; do
+              [ "$n" = "$b" ] && excluded="true"
+            done
+          done
+          echo "excluded=$excluded" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on excluded PR
+        if: ${{ steps.excluded.outputs.excluded == 'true' }}
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEP_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+        run: gh pr comment "$PR_URL" --body "Not auto-merging: \`${DEP_NAMES}\` is on the load-bearing exclusion list (data-integrity / wire-format surface). Manual review required."
+
       - name: Approve PR
-        # Approve only patch and minor updates
-        if: ${{ steps.metadata.outputs.update-type != 'version-update:semver-major' }}
+        # Approve only patch and minor updates, and never excluded deps
+        if: ${{ steps.metadata.outputs.update-type != 'version-update:semver-major' && steps.excluded.outputs.excluded == 'false' }}
         run: gh pr review --approve "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Enable auto-merge for Dependabot PRs
-        # Enable auto-merging only for patch and minor updates
-        if: ${{ steps.metadata.outputs.update-type != 'version-update:semver-major' }}
+        # Enable auto-merging only for patch and minor updates, and never excluded deps
+        if: ${{ steps.metadata.outputs.update-type != 'version-update:semver-major' && steps.excluded.outputs.excluded == 'false' }}
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
