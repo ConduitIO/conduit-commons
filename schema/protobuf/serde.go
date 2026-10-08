@@ -52,25 +52,46 @@ type Serde struct {
 	maxIndexDepth int
 }
 
-// Parse compiles .proto source text into a Serde. The source must be a single
-// self-contained file: it may import the standard google/protobuf/*.proto
-// files, but any other import fails with ErrReferencesNotSupported.
+// Parse compiles .proto source text into a Serde.
 //
-// The compile is bounded by a timeout (see the package doc). Every returned
-// error matches one of ErrInvalidOption, ErrCompileTimeout,
-// ErrReferencesNotSupported or ErrSchemaCompile. Parse does not retain text;
-// it works on a copy.
-func Parse(text []byte, opts ...Option) (*Serde, error) {
+// The source may import the standard google/protobuf/*.proto files and the
+// schemas given with WithReferences, which Parse resolves recursively before
+// compiling (see the package doc). Any other import fails with
+// ErrUnresolvedImport.
+//
+// ctx bounds the whole call: cancelling it stops reference resolution and the
+// compile, and Parse returns ErrCanceled. The compile is also bounded by the
+// compile timeout, and the source plus all referenced sources by the schema
+// size cap (see the package doc). Every returned error matches exactly one
+// sentinel listed there. Parse does not retain text or the resolved sources;
+// it works on copies.
+func Parse(ctx context.Context, text []byte, opts ...Option) (*Serde, error) {
 	o, err := resolveOptions(opts)
 	if err != nil {
 		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrCanceled, err)
+	}
+	if len(text) > o.maxSchemaSize {
+		return nil, fmt.Errorf("%w: the schema is %d bytes, the limit is %d", ErrSchemaTooLarge, len(text), o.maxSchemaSize)
 	}
 
 	// Copy the source: on timeout, protocompile may still be reading it in a
 	// background goroutine after Parse returns, and the caller owns text.
 	src := bytes.Clone(text)
 
-	ctx, cancel := context.WithTimeout(context.Background(), o.compileTimeout)
+	// Resolution runs before the compile timeout starts: it is network I/O
+	// bounded by ctx and the resolver, not compile work.
+	imports, err := resolveReferences(ctx, o.references, o.resolve, len(src), o.maxSchemaSize)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("%w: %w", ErrCanceled, ctxErr)
+		}
+		return nil, err
+	}
+
+	compileCtx, cancel := context.WithTimeout(ctx, o.compileTimeout)
 	defer cancel()
 
 	compiler := protocompile.Compiler{
@@ -81,19 +102,24 @@ func Parse(text []byte, opts ...Option) (*Serde, error) {
 				}
 				return protocompile.SearchResult{Source: bytes.NewReader(src)}, nil
 			}
+			// A declared reference wins over a standard import of the same
+			// path: it is the copy the producer registered.
+			if imported, ok := imports[path]; ok {
+				return protocompile.SearchResult{Source: bytes.NewReader(imported)}, nil
+			}
 			if res, err := standardImports.FindFileByPath(path); err == nil {
 				return res, nil
 			}
-			return protocompile.SearchResult{}, fmt.Errorf("%w: import %q", ErrReferencesNotSupported, path)
+			return protocompile.SearchResult{}, fmt.Errorf("%w: import %q", ErrUnresolvedImport, path)
 		}),
-		// One file plus at most a few standard imports; parallelism buys
-		// nothing and would let one schema occupy every core.
+		// The size cap bounds the work; parallelism would only let one
+		// schema occupy every core.
 		MaxParallelism: 1,
 	}
 
-	files, err := compiler.Compile(ctx, schemaFileName)
+	files, err := compiler.Compile(compileCtx, schemaFileName)
 	if err != nil {
-		return nil, classifyCompileError(ctx, o, err)
+		return nil, classifyCompileError(ctx, compileCtx, o, err)
 	}
 	if len(files) != 1 || files[0] == nil {
 		// Not expected from protocompile for a successful single-file
@@ -109,13 +135,16 @@ func Parse(text []byte, opts ...Option) (*Serde, error) {
 }
 
 // classifyCompileError maps a protocompile error onto exactly one sentinel.
-func classifyCompileError(ctx context.Context, o options, err error) error {
+// ctx is the caller's context, compileCtx the one carrying the timeout.
+func classifyCompileError(ctx, compileCtx context.Context, o options, err error) error {
 	switch {
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		// Checked first: once the deadline passes, protocompile returns the
-		// bare context error, and whatever else failed is moot.
+	// The context checks come first: once a context ends, protocompile
+	// returns the bare context error, and whatever else failed is moot.
+	case ctx.Err() != nil:
+		return fmt.Errorf("%w: %w", ErrCanceled, ctx.Err())
+	case errors.Is(compileCtx.Err(), context.DeadlineExceeded):
 		return fmt.Errorf("%w after %s: %w", ErrCompileTimeout, o.compileTimeout, context.DeadlineExceeded)
-	case errors.Is(err, ErrReferencesNotSupported):
+	case errors.Is(err, ErrUnresolvedImport):
 		return err
 	default:
 		return fmt.Errorf("%w: %w", ErrSchemaCompile, err)

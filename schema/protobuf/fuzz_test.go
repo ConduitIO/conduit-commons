@@ -54,7 +54,7 @@ func FuzzParse(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, text []byte) {
-		srd, err := Parse(text)
+		srd, err := Parse(t.Context(), text)
 		if err != nil {
 			if srd != nil {
 				t.Fatalf("Parse returned both a Serde and an error: %v", err)

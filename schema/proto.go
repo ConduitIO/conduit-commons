@@ -41,6 +41,7 @@ func (s *Schema) FromProto(proto *schemav1.Schema) error {
 	s.ID = int(proto.Id)
 	s.Type = Type(proto.Type)
 	s.Bytes = proto.Bytes
+	s.References = nil // not carried by the wire type
 
 	return nil
 }

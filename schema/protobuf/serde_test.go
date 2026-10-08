@@ -28,7 +28,11 @@ import (
 
 // sentinels lists every error Parse may return; each error must match
 // exactly one of them.
-var sentinels = []error{ErrInvalidOption, ErrCompileTimeout, ErrReferencesNotSupported, ErrSchemaCompile}
+var sentinels = []error{
+	ErrInvalidOption, ErrCanceled, ErrCompileTimeout, ErrSchemaTooLarge,
+	ErrReferenceResolve, ErrReferenceCycle, ErrReferenceLimit, ErrInvalidReference,
+	ErrUnresolvedImport, ErrSchemaCompile,
+}
 
 func matchingSentinels(err error) []error {
 	var out []error
@@ -85,7 +89,7 @@ func TestParse_Valid(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			is := is.New(t)
 
-			srd, err := Parse([]byte(tc.text))
+			srd, err := Parse(t.Context(), []byte(tc.text))
 			is.NoErr(err)
 			is.Equal(srd.String(), tc.text)
 			is.Equal(messageNames(srd.file), tc.wantMessages)
@@ -96,7 +100,7 @@ func TestParse_Valid(t *testing.T) {
 func TestParse_WellKnownTypeIsLinked(t *testing.T) {
 	is := is.New(t)
 
-	srd, err := Parse([]byte(wellKnownImportSchema))
+	srd, err := Parse(t.Context(), []byte(wellKnownImportSchema))
 	is.NoErr(err)
 
 	field := srd.file.Messages().ByName("Event").Fields().ByName("created_at")
@@ -128,7 +132,7 @@ func TestParse_Errors(t *testing.T) {
 	}, {
 		name:        "import of a non-standard file is a reference",
 		text:        referenceSchema,
-		wantErr:     ErrReferencesNotSupported,
+		wantErr:     ErrUnresolvedImport,
 		wantMessage: `"example/v1/customer.proto"`,
 	}, {
 		name:        "self import is a cycle",
@@ -145,7 +149,7 @@ func TestParse_Errors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			is := is.New(t)
 
-			srd, err := Parse([]byte(tc.text))
+			srd, err := Parse(t.Context(), []byte(tc.text))
 			is.True(srd == nil)
 			is.True(err != nil)
 			is.Equal(matchingSentinels(err), []error{tc.wantErr})
@@ -169,7 +173,7 @@ func TestParse_CompileTimeout(t *testing.T) {
 	}
 
 	start := time.Now()
-	srd, err := Parse([]byte(flatSchema), WithCompileTimeout(20*time.Millisecond), hook)
+	srd, err := Parse(t.Context(), []byte(flatSchema), WithCompileTimeout(20*time.Millisecond), hook)
 	elapsed := time.Since(start)
 	close(release) // let the orphaned compile goroutine finish
 
@@ -196,7 +200,7 @@ func TestSetDefaultCompileTimeout(t *testing.T) {
 		return nil
 	}
 
-	_, err := Parse([]byte(flatSchema), hook)
+	_, err := Parse(t.Context(), []byte(flatSchema), hook)
 	is.True(errors.Is(err, ErrCompileTimeout))
 	is.True(strings.Contains(err.Error(), "20ms"))
 
@@ -212,7 +216,7 @@ func TestCompileTimeout_CannotBeDisabled(t *testing.T) {
 			is := is.New(t)
 			t.Cleanup(func() { defaultCompileTimeout.Store(0) })
 
-			_, err := Parse([]byte(flatSchema), WithCompileTimeout(d))
+			_, err := Parse(t.Context(), []byte(flatSchema), WithCompileTimeout(d))
 			is.Equal(matchingSentinels(err), []error{ErrInvalidOption})
 
 			err = SetDefaultCompileTimeout(d)
@@ -226,7 +230,7 @@ func TestParse_DoesNotRetainInput(t *testing.T) {
 	is := is.New(t)
 
 	text := []byte(flatSchema)
-	srd, err := Parse(text)
+	srd, err := Parse(t.Context(), text)
 	is.NoErr(err)
 
 	for i := range text {
@@ -244,7 +248,7 @@ func TestParse_Concurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, errs[i] = Parse([]byte(multipleMessagesSchema))
+			_, errs[i] = Parse(t.Context(), []byte(multipleMessagesSchema))
 		}()
 	}
 	wg.Wait()
@@ -256,7 +260,7 @@ func TestParse_Concurrent(t *testing.T) {
 func TestSerde_IsDecodeOnly(t *testing.T) {
 	is := is.New(t)
 
-	srd, err := Parse([]byte(flatSchema))
+	srd, err := Parse(t.Context(), []byte(flatSchema))
 	is.NoErr(err)
 
 	out, err := srd.Marshal(map[string]any{"id": "1"})

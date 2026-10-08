@@ -55,11 +55,45 @@ func SetDefaultCompileTimeout(d time.Duration) error {
 	return nil
 }
 
+// DefaultMaxSchemaSize is the schema size cap used when neither
+// WithMaxSchemaSize nor SetDefaultMaxSchemaSize set one: 1 MiB of .proto
+// source, counting the schema and every schema it references. Real schemas
+// are far smaller; the cap bounds the compile work a single schema can cause,
+// including a compile that outlives its timeout (see the package doc).
+const DefaultMaxSchemaSize = 1 << 20
+
+// defaultMaxSchemaSize holds the process-wide cap set by
+// SetDefaultMaxSchemaSize, or 0 for DefaultMaxSchemaSize.
+var defaultMaxSchemaSize atomic.Int64
+
+func currentDefaultMaxSchemaSize() int {
+	if n := defaultMaxSchemaSize.Load(); n > 0 {
+		return int(n)
+	}
+	return DefaultMaxSchemaSize
+}
+
+// SetDefaultMaxSchemaSize changes the schema size cap Parse uses when it is
+// not given WithMaxSchemaSize, in bytes of .proto source including every
+// referenced schema. n must be > 0; the cap can't be disabled. Like
+// SetDefaultCompileTimeout, it applies to compiles that start after the call.
+func SetDefaultMaxSchemaSize(n int) error {
+	if n <= 0 {
+		return fmt.Errorf("%w: SetDefaultMaxSchemaSize requires n > 0, got %d", ErrInvalidOption, n)
+	}
+	defaultMaxSchemaSize.Store(int64(n))
+	return nil
+}
+
 // Option configures Parse.
 type Option func(*options) error
 
 type options struct {
 	compileTimeout time.Duration // 0 = use defaultCompileTimeout
+	maxSchemaSize  int           // 0 = use defaultMaxSchemaSize
+
+	references []Reference
+	resolve    ResolveFunc
 
 	// sourceHook, if set, runs each time the compiler reads the schema
 	// source. Tests use it to hold a compile open past its deadline; it is
@@ -77,6 +111,9 @@ func resolveOptions(opts []Option) (options, error) {
 	if o.compileTimeout == 0 {
 		o.compileTimeout = currentDefaultCompileTimeout()
 	}
+	if o.maxSchemaSize == 0 {
+		o.maxSchemaSize = currentDefaultMaxSchemaSize()
+	}
 	return o, nil
 }
 
@@ -88,6 +125,30 @@ func WithCompileTimeout(d time.Duration) Option {
 			return fmt.Errorf("%w: WithCompileTimeout requires d > 0, got %s", ErrInvalidOption, d)
 		}
 		o.compileTimeout = d
+		return nil
+	}
+}
+
+// WithMaxSchemaSize sets the schema size cap for one Parse call, overriding
+// the process-wide default. n must be > 0; the cap can't be disabled.
+func WithMaxSchemaSize(n int) Option {
+	return func(o *options) error {
+		if n <= 0 {
+			return fmt.Errorf("%w: WithMaxSchemaSize requires n > 0, got %d", ErrInvalidOption, n)
+		}
+		o.maxSchemaSize = n
+		return nil
+	}
+}
+
+// WithReferences declares the schema's references and the function that
+// fetches them. Parse resolves them, and their own references, before
+// compiling. A schema with references and a nil resolve fails with
+// ErrReferenceResolve.
+func WithReferences(refs []Reference, resolve ResolveFunc) Option {
+	return func(o *options) error {
+		o.references = append([]Reference(nil), refs...)
+		o.resolve = resolve
 		return nil
 	}
 }
