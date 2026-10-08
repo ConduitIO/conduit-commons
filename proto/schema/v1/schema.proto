@@ -9,6 +9,7 @@ message Schema {
   enum Type {
     TYPE_UNSPECIFIED = 0;
     TYPE_AVRO = 1;
+    TYPE_PROTOBUF = 2;
   }
 
   // The subject of the schema. Together with the version, this uniquely

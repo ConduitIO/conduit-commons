@@ -3,6 +3,7 @@ module github.com/conduitio/conduit-commons
 go 1.24.13
 
 require (
+	github.com/bufbuild/protocompile v0.14.2-0.20260127163740-a85d2ef77713
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/goccy/go-json v0.10.6
 	github.com/google/go-cmp v0.7.0
@@ -40,6 +41,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/petermattis/goid v0.0.0-20250319124200-ccd6737f222a // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect

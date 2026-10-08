@@ -8,6 +8,12 @@
 #   github.com/dgraph-io/badger/v4 - the state store
 #   google.golang.org/protobuf     - the gRPC/protocol wire format
 #   modernc.org/sqlite             - state backend
+#   github.com/bufbuild/protocompile - compiles untrusted, network-supplied
+#                                    Protobuf schemas; pinned to the newest
+#                                    pseudo-version that still supports this
+#                                    module's Go version (later commits need
+#                                    Go 1.25+), so a bump can raise the go
+#                                    directive
 # Excluded PRs get a comment saying so; the human merges them when reviewed.
 
 name: Dependabot auto-merge
@@ -35,7 +41,7 @@ jobs:
         id: excluded
         env:
           NAMES: ${{ steps.metadata.outputs.dependency-names }}
-          EXCLUDED: "github.com/jackc/pgx/v5,github.com/dgraph-io/badger/v4,google.golang.org/protobuf,modernc.org/sqlite"
+          EXCLUDED: "github.com/jackc/pgx/v5,github.com/dgraph-io/badger/v4,google.golang.org/protobuf,modernc.org/sqlite,github.com/bufbuild/protocompile"
         run: |
           excluded="false"
           IFS=',' read -ra names <<< "$NAMES"
