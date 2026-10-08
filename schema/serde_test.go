@@ -90,7 +90,12 @@ func TestSchema_Protobuf_CompileErrorIsUnwrappable(t *testing.T) {
 // duration of the test and returns the Type and a counter of Parse calls.
 func registerFakeType(t *testing.T, parse func(call int64) (Serde, error)) (Type, *atomic.Int64) {
 	t.Helper()
-	typ := Type(1000)
+	return registerFakeTypeAs(t, Type(1000), parse)
+}
+
+// registerFakeTypeAs is registerFakeType for a caller-chosen unused Type.
+func registerFakeTypeAs(t *testing.T, typ Type, parse func(call int64) (Serde, error)) (Type, *atomic.Int64) {
+	t.Helper()
 	if _, ok := KnownSerdeFactories[typ]; ok {
 		t.Fatalf("type %d is already registered", typ)
 	}
@@ -103,11 +108,55 @@ func registerFakeType(t *testing.T, parse func(call int64) (Serde, error)) (Type
 	return typ, &calls
 }
 
-type fakeSerde struct{}
+type fakeSerde struct{ name string }
 
 func (fakeSerde) Marshal(any) ([]byte, error) { return nil, nil }
 func (fakeSerde) Unmarshal([]byte, any) error { return nil }
-func (fakeSerde) String() string              { return "fake" }
+func (f fakeSerde) String() string            { return "fake " + f.name }
+
+// The cache key must include the type: the same bytes under two types are two
+// different schemas. Keyed on the bytes alone, whichever type was parsed first
+// would hand its Serde (or its parse error) to the other.
+func TestSchema_Serde_SameBytesDifferentTypes(t *testing.T) {
+	is := is.New(t)
+
+	typA, callsA := registerFakeTypeAs(t, Type(1001), func(int64) (Serde, error) {
+		return fakeSerde{name: "a"}, nil
+	})
+	errB := errors.New("not a valid b schema")
+	typB, callsB := registerFakeTypeAs(t, Type(1002), func(int64) (Serde, error) {
+		return nil, errB
+	})
+	typC, callsC := registerFakeTypeAs(t, Type(1003), func(int64) (Serde, error) {
+		return fakeSerde{name: "c"}, nil
+	})
+	b := []byte(t.Name()) // identical bytes for every type
+
+	srd, err := Schema{Type: typA, Bytes: b}.Serde()
+	is.NoErr(err)
+	is.Equal(srd, fakeSerde{name: "a"})
+
+	// B's own factory runs: it gets its own error, not A's Serde.
+	_, err = Schema{Type: typB, Bytes: b}.Serde()
+	is.True(errors.Is(err, errB))
+
+	// C's factory runs too: it gets its own Serde, not B's cached error.
+	srd, err = Schema{Type: typC, Bytes: b}.Serde()
+	is.NoErr(err)
+	is.Equal(srd, fakeSerde{name: "c"})
+
+	// Each result is cached under its own key.
+	for range 2 {
+		srd, err = Schema{Type: typA, Bytes: b}.Serde()
+		is.NoErr(err)
+		is.Equal(srd, fakeSerde{name: "a"})
+		_, err = Schema{Type: typB, Bytes: b}.Serde()
+		is.True(errors.Is(err, errB))
+	}
+	is.Equal(callsA.Load(), int64(1))
+	is.Equal(callsB.Load(), int64(1))
+	is.Equal(callsC.Load(), int64(1))
+}
 
 // A timed-out parse must not be cached: the timeout says nothing about the
 // schema, and caching it would fail every pipeline using the schema for the
@@ -119,7 +168,7 @@ func TestSchema_Serde_TimeoutIsNotCached(t *testing.T) {
 		if call == 1 {
 			return nil, fmt.Errorf("%w: %w", protobuf.ErrCompileTimeout, context.DeadlineExceeded)
 		}
-		return fakeSerde{}, nil
+		return fakeSerde{name: "ok"}, nil
 	})
 	s := Schema{Type: typ, Bytes: []byte(t.Name())}
 
@@ -128,7 +177,7 @@ func TestSchema_Serde_TimeoutIsNotCached(t *testing.T) {
 
 	srd, err := s.Serde()
 	is.NoErr(err)
-	is.Equal(srd, fakeSerde{})
+	is.Equal(srd, fakeSerde{name: "ok"})
 	is.Equal(calls.Load(), int64(2))
 
 	// the success is cached as usual
