@@ -14,11 +14,13 @@
 
 package schema
 
-// Backward-compatibility proof for adding TYPE_PROTOBUF = 2 to the
-// schema.v1.Schema.Type wire enum: a reader built before the change (any
-// conduit-commons <= v0.7.x, and every connector, processor or SDK pinned to
-// one) round-trips a schema of type 2 without losing or changing it, and
-// fails loudly, not silently, when it gets as far as needing a Serde.
+// Backward-compatibility proof for the two additions to schema.v1.Schema
+// since v0.6.0: TYPE_PROTOBUF = 2 in the Type enum, and the repeated
+// Reference references = 6 field with its nested Reference message. A reader
+// built before the change (any conduit-commons <= v0.7.x, and every
+// connector, processor or SDK pinned to one) round-trips a schema of type 2
+// with references without losing or changing it, and fails loudly, not
+// silently, when it gets as far as needing a Serde.
 //
 // The old reader is real, not simulated: v060SchemaRawDesc is the serialized
 // file descriptor embedded in proto/schema/v1/schema.pb.go at tag v0.6.0
@@ -28,7 +30,8 @@ package schema
 // the way the old generated type does. It is built against a private
 // registry, so it does not clash with the current schema.v1 registration.
 // TestCompat_VendoredDescriptorIsThePredecessor pins that the vendored bytes
-// are the current descriptor minus the new value and nothing else.
+// are the current descriptor minus the new value, field and message, and
+// nothing else.
 
 import (
 	"bytes"
@@ -131,8 +134,24 @@ func TestCompat_VendoredDescriptorIsThePredecessor(t *testing.T) {
 	is := is.New(t)
 
 	current := protodesc.ToFileDescriptorProto(schemav1.File_schema_v1_schema_proto)
+	schemaMsg := current.GetMessageType()[0]
+
+	// remove exactly the references field (6) and the Reference message
+	keptFields := make([]*descriptorpb.FieldDescriptorProto, 0, len(schemaMsg.GetField()))
+	for _, f := range schemaMsg.GetField() {
+		if f.GetName() == "references" && f.GetNumber() == 6 {
+			continue
+		}
+		keptFields = append(keptFields, f)
+	}
+	is.Equal(len(keptFields), len(schemaMsg.GetField())-1)
+	schemaMsg.Field = keptFields
+	is.Equal(len(schemaMsg.GetNestedType()), 1)
+	is.Equal(schemaMsg.GetNestedType()[0].GetName(), "Reference")
+	schemaMsg.NestedType = nil
+
 	var typeEnum *descriptorpb.EnumDescriptorProto
-	for _, e := range current.GetMessageType()[0].GetEnumType() {
+	for _, e := range schemaMsg.GetEnumType() {
 		if e.GetName() == "Type" {
 			typeEnum = e
 		}
@@ -153,7 +172,7 @@ func TestCompat_VendoredDescriptorIsThePredecessor(t *testing.T) {
 	typeEnum.Value = kept
 
 	if !proto.Equal(current, v060SchemaFileDescriptorProto(t)) {
-		t.Fatal("current schema.proto minus TYPE_PROTOBUF differs from v0.6.0: the change is not purely additive")
+		t.Fatal("current schema.proto minus TYPE_PROTOBUF and references differs from v0.6.0: the change is not purely additive")
 	}
 }
 
@@ -167,7 +186,10 @@ func TestCompat_OldReaderRoundTripsTypeProtobuf(t *testing.T) {
 		Version: 3,
 		Id:      42,
 		Type:    schemav1.Schema_TYPE_PROTOBUF,
-		Bytes:   []byte(`syntax = "proto3"; message Order { string id = 1; }`),
+		Bytes:   []byte(`syntax = "proto3"; import "customer.proto"; message Order { Customer c = 1; }`),
+		References: []*schemav1.Schema_Reference{
+			{Name: "customer.proto", Subject: "customer", Version: 2},
+		},
 	}
 	deterministic := proto.MarshalOptions{Deterministic: true}
 	wire, err := deterministic.Marshal(written)
@@ -185,7 +207,11 @@ func TestCompat_OldReaderRoundTripsTypeProtobuf(t *testing.T) {
 	is.Equal(old.Get(oldMD.Fields().ByName("version")).Int(), int64(3))
 	is.Equal(old.Get(oldMD.Fields().ByName("id")).Int(), int64(42))
 	is.Equal(old.Get(oldMD.Fields().ByName("bytes")).Bytes(), written.Bytes)
-	is.Equal(len(old.GetUnknown()), 0) // stored as a field value, not shunted to unknown fields
+	// type 2 is stored as a field value, not shunted to unknown fields; the
+	// references field (6), which the old reader has no descriptor for, is
+	// kept as unknown bytes and re-emitted as is
+	is.True(oldMD.Fields().ByNumber(6) == nil)
+	is.True(len(old.GetUnknown()) > 0)
 
 	// old writer re-emits identical bytes
 	rewired, err := deterministic.Marshal(old)
@@ -200,6 +226,7 @@ func TestCompat_OldReaderRoundTripsTypeProtobuf(t *testing.T) {
 	var s Schema
 	is.NoErr(s.FromProto(&read))
 	is.Equal(s.Type, TypeProtobuf)
+	is.Equal(s.References, []Reference{{Name: "customer.proto", Subject: "customer", Version: 2}})
 }
 
 // The same round trip for the JSON form. An old reader emits an enum value
@@ -228,6 +255,16 @@ func TestCompat_OldReaderJSON(t *testing.T) {
 	is.True(strings.Contains(string(newJSON), "TYPE_PROTOBUF"))
 	err = protojson.Unmarshal(newJSON, dynamicpb.NewMessage(oldMD))
 	is.True(err != nil)
+
+	// old reader, references: rejected as an unknown field, not dropped
+	refJSON, err := protojson.Marshal(&schemav1.Schema{
+		Type:       schemav1.Schema_TYPE_AVRO,
+		References: []*schemav1.Schema_Reference{{Name: "a.proto", Subject: "a", Version: 1}},
+	})
+	is.NoErr(err)
+	err = protojson.Unmarshal(refJSON, dynamicpb.NewMessage(oldMD))
+	is.True(err != nil)
+	is.True(strings.Contains(err.Error(), "references"))
 }
 
 // Type's text form (used by configuration such as the connector SDK's

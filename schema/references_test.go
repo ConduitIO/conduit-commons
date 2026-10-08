@@ -263,11 +263,39 @@ func TestSchema_SerdeWithResolver_JoinedCallerSurvivesOthersCancel(t *testing.T)
 	is.Equal(calls.Load(), int64(2))
 }
 
-func TestSchema_FromProto_ClearsReferences(t *testing.T) {
+// References survive the wire type both ways, so a standalone processor gets
+// the same schema the host resolved.
+func TestSchema_ProtoRoundTripsReferences(t *testing.T) {
+	is := is.New(t)
+	in := Schema{
+		Subject: "orders-value", Version: 3, ID: 42, Type: TypeProtobuf, Bytes: []byte("x"),
+		References: []Reference{
+			{Name: "example/v1/customer.proto", Subject: "customer", Version: 2},
+			{Name: "example/v1/address.proto", Subject: "address", Version: 1},
+		},
+	}
+	var p schemav1.Schema
+	is.NoErr(in.ToProto(&p))
+	is.Equal(len(p.References), 2)
+	is.Equal(p.References[0].GetSubject(), "customer")
+
+	var out Schema
+	is.NoErr(out.FromProto(&p))
+	is.Equal(out, in)
+}
+
+// A receiver reused for a schema without references must not keep the
+// previous schema's references, and a proto reused likewise.
+func TestSchema_ProtoClearsStaleReferences(t *testing.T) {
 	is := is.New(t)
 	s := Schema{References: []Reference{{Name: "a.proto", Subject: "a", Version: 1}}}
 	is.NoErr(s.FromProto(&schemav1.Schema{Type: schemav1.Schema_TYPE_PROTOBUF, Bytes: []byte("x")}))
 	is.Equal(s.References, nil)
+
+	p := schemav1.Schema{References: []*schemav1.Schema_Reference{{Name: "a.proto"}}}
+	src := Schema{Type: TypeAvro}
+	is.NoErr(src.ToProto(&p))
+	is.Equal(len(p.References), 0)
 }
 
 func TestSchema_Avro_IgnoresResolver(t *testing.T) {

@@ -52,9 +52,9 @@ type Schema struct {
 
 	// References are the other registered schemas this schema refers to
 	// (for Protobuf, the files it imports). They are resolved through the
-	// Resolver given to SerdeWithResolver. References are not carried by
-	// the schema.v1.Schema wire type: ToProto drops them and FromProto
-	// clears them.
+	// Resolver given to SerdeWithResolver, and carried by the
+	// schema.v1.Schema wire type (field 6), so a standalone processor
+	// receives them too.
 	References []Reference
 }
 

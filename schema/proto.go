@@ -41,7 +41,13 @@ func (s *Schema) FromProto(proto *schemav1.Schema) error {
 	s.ID = int(proto.Id)
 	s.Type = Type(proto.Type)
 	s.Bytes = proto.Bytes
-	s.References = nil // not carried by the wire type
+	s.References = nil
+	if len(proto.References) > 0 {
+		s.References = make([]Reference, len(proto.References))
+		for i, ref := range proto.References {
+			s.References[i] = Reference{Name: ref.Name, Subject: ref.Subject, Version: int(ref.Version)}
+		}
+	}
 
 	return nil
 }
@@ -61,6 +67,17 @@ func (s *Schema) ToProto(proto *schemav1.Schema) error {
 	proto.Id = int32(s.ID)           //nolint:gosec // no risk of overflow
 	proto.Type = schemav1.Schema_Type(s.Type)
 	proto.Bytes = s.Bytes
+	proto.References = nil
+	if len(s.References) > 0 {
+		proto.References = make([]*schemav1.Schema_Reference, len(s.References))
+		for i, ref := range s.References {
+			proto.References[i] = &schemav1.Schema_Reference{
+				Name:    ref.Name,
+				Subject: ref.Subject,
+				Version: int32(ref.Version), //nolint:gosec // no risk of overflow
+			}
+		}
+	}
 
 	return nil
 }
