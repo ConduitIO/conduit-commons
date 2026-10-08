@@ -14,7 +14,12 @@
 #                                    module's Go version (later commits need
 #                                    Go 1.25+), so a bump can raise the go
 #                                    directive
-# Excluded PRs get a comment saying so; the human merges them when reviewed.
+#   github.com/twmb/franz-go         - (prefix: every franz-go module, e.g.
+#                                    pkg/sr) parses the untrusted Confluent
+#                                    wire header and Protobuf message index
+# An entry matches the module itself and every module under it
+# (entry + "/..."). Excluded PRs get a comment saying so; the human merges
+# them when reviewed.
 
 name: Dependabot auto-merge
 on:
@@ -41,14 +46,17 @@ jobs:
         id: excluded
         env:
           NAMES: ${{ steps.metadata.outputs.dependency-names }}
-          EXCLUDED: "github.com/jackc/pgx/v5,github.com/dgraph-io/badger/v4,google.golang.org/protobuf,modernc.org/sqlite,github.com/bufbuild/protocompile"
+          EXCLUDED: "github.com/jackc/pgx/v5,github.com/dgraph-io/badger/v4,google.golang.org/protobuf,modernc.org/sqlite,github.com/bufbuild/protocompile,github.com/twmb/franz-go"
         run: |
           excluded="false"
           IFS=',' read -ra names <<< "$NAMES"
           IFS=',' read -ra blocked <<< "$EXCLUDED"
           for n in "${names[@]}"; do
+            n="${n#"${n%%[! ]*}"}" # dependency-names is ", "-separated
             for b in "${blocked[@]}"; do
-              [ "$n" = "$b" ] && excluded="true"
+              case "$n" in
+                "$b"|"$b"/*) excluded="true" ;;
+              esac
             done
           done
           echo "excluded=$excluded" >> "$GITHUB_OUTPUT"
