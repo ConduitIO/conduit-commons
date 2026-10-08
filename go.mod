@@ -1,6 +1,6 @@
 module github.com/conduitio/conduit-commons
 
-go 1.24.13
+go 1.25.0
 
 require (
 	github.com/bufbuild/protocompile v0.14.2-0.20260127163740-a85d2ef77713
@@ -9,7 +9,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/iskorotkov/avro/v2 v2.34.0
-	github.com/jackc/pgx/v5 v5.8.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/matryer/is v1.4.1
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/modern-go/reflect2 v1.0.2
