@@ -21,15 +21,16 @@
 // docs/design-documents/20260823-protobuf-schema-support.md; this package
 // grows in the slices listed there:
 //
-//   - PB-1 (this state): Parse for a single, self-contained .proto file. The
-//     standard google/protobuf/*.proto imports resolve; any other import is a
-//     schema reference and fails with ErrReferencesNotSupported.
-//   - PB-2: Confluent message-index handling, selecting the message a payload
-//     was encoded with.
+//   - PB-1: Parse for a single, self-contained .proto file. The standard
+//     google/protobuf/*.proto imports resolve; any other import is a schema
+//     reference and fails with ErrReferencesNotSupported.
+//   - PB-2 (this state): Confluent message-index handling, selecting the
+//     message a payload was encoded with.
 //   - PB-3: schema-reference resolution against the registry.
 //   - PB-4: decoding a payload into structured data.
 //
-// Until PB-2 and PB-4 land, Serde.Unmarshal returns ErrDecodeNotImplemented.
+// Until PB-4 lands, Serde.Unmarshal resolves the message index and then
+// returns ErrDecodeNotImplemented.
 // Support is decode-only by design: Serde.Marshal, and the SerdeForType entry
 // for this type in schema.KnownSerdeFactories, return ErrEncodingNotSupported,
 // because a Protobuf schema (field numbers, message identity) can't be
@@ -50,10 +51,25 @@
 // protocompile stops scheduling work when its context ends, but a file
 // already being parsed finishes in the background before its goroutine exits.
 //
+// # Message index
+//
+// A Confluent Protobuf value is the magic byte, the 4-byte schema ID, a
+// message index, then the Protobuf payload. One .proto file can declare many
+// messages; the index says which one the payload is. It is a zigzag varint
+// count followed by that many zigzag varint indexes: the first selects a
+// top-level message in declaration order, each further one a nested message
+// of the previous. A count of 0 is a shortcut for [0], the first top-level
+// message. Serde.Unmarshal takes the value after the schema ID, index first.
+// An index that doesn't select a message fails with ErrMessageIndex; it never
+// falls back to another message, because a payload decoded against the wrong
+// descriptor can succeed and produce garbage.
+//
 // # Errors
 //
 // Every error Parse returns matches exactly one of ErrInvalidOption,
 // ErrCompileTimeout, ErrReferencesNotSupported or ErrSchemaCompile under
-// errors.Is. These sentinels are the stable identities that callers (the
-// conduit protobuf.decode processor) map to error codes.
+// errors.Is. Every error Serde.Unmarshal returns matches exactly one of
+// ErrMessageIndex or ErrDecodeNotImplemented. These sentinels are the stable
+// identities that callers (the conduit protobuf.decode processor) map to
+// error codes.
 package protobuf

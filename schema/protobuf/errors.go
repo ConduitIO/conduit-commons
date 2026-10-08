@@ -24,10 +24,15 @@ var (
 	// a Go value.
 	ErrEncodingNotSupported = errors.New("protobuf encoding is not supported")
 
-	// ErrDecodeNotImplemented is returned by Serde.Unmarshal until
-	// message-index handling (PB-2) and field mapping (PB-4) land. It is a
+	// ErrDecodeNotImplemented is returned by Serde.Unmarshal, after the
+	// message index is resolved, until field mapping (PB-4) lands. It is a
 	// placeholder for unreleased work, not part of the decode contract.
 	ErrDecodeNotImplemented = errors.New("protobuf decoding is not implemented yet")
+
+	// ErrMessageIndex is returned by Serde.Unmarshal when the Confluent
+	// message index at the start of the value is malformed or doesn't select
+	// a message in the schema. The payload is not decoded.
+	ErrMessageIndex = errors.New("invalid protobuf message index")
 
 	// ErrSchemaCompile is returned by Parse when protocompile rejects the
 	// schema source. The wrapped error carries the file position of the

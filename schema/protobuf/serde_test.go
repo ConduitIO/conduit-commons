@@ -263,8 +263,9 @@ func TestSerde_IsDecodeOnly(t *testing.T) {
 	is.True(out == nil)
 	is.True(errors.Is(err, ErrEncodingNotSupported))
 
+	// Message index [0] (shortcut), then the payload.
 	var v any
-	err = srd.Unmarshal([]byte{0x0a, 0x01, 0x31}, &v)
-	is.True(errors.Is(err, ErrDecodeNotImplemented))
+	err = srd.Unmarshal([]byte{0x00, 0x0a, 0x01, 0x31}, &v)
+	is.Equal(matchingUnmarshalSentinels(err), []error{ErrDecodeNotImplemented})
 	is.Equal(v, nil)
 }
