@@ -9,11 +9,12 @@ func _() {
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
 	_ = x[TypeAvro-1]
+	_ = x[TypeProtobuf-2]
 }
 
-const _Type_name = "avro"
+const _Type_name = "avroprotobuf"
 
-var _Type_index = [...]uint8{0, 4}
+var _Type_index = [...]uint8{0, 4, 12}
 
 func (i Type) String() string {
 	i -= 1

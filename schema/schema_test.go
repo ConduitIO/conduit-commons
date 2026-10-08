@@ -27,7 +27,8 @@ func TestType(t *testing.T) {
 		text []byte
 	}{
 		{typ: TypeAvro, text: []byte("avro")},
-		{typ: Type(2), text: []byte("Type(2)")},
+		{typ: TypeProtobuf, text: []byte("protobuf")},
+		{typ: Type(3), text: []byte("Type(3)")},
 	}
 
 	for _, tc := range testCases {

@@ -17,6 +17,8 @@
 package schema
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -24,13 +26,21 @@ import (
 
 	"github.com/conduitio/conduit-commons/rabin"
 	"github.com/conduitio/conduit-commons/schema/avro"
+	"github.com/conduitio/conduit-commons/schema/protobuf"
 	"github.com/twmb/go-cache/cache"
 )
 
+// Type identifies the format of a schema. Its numeric values are a wire
+// contract: they match the schema.v1.Schema.Type enum in
+// proto/schema/v1/schema.proto and are append-only. A reader built against an
+// older version of this package carries an unknown value through unchanged
+// and fails with ErrUnsupportedType when asked for a Serde (see
+// proto_compat_test.go).
 type Type int32
 
 const (
-	TypeAvro Type = iota + 1 // avro
+	TypeAvro     Type = iota + 1 // avro
+	TypeProtobuf                 // protobuf
 )
 
 type Schema struct {
@@ -73,9 +83,15 @@ func (s Schema) Fingerprint() uint64 {
 	return rabin.Bytes(s.Bytes)
 }
 
-// Serde returns the serde for the schema.
+// Serde returns the serde for the schema. Serdes are cached process-wide by
+// schema fingerprint, and so are parse errors, with one exception: a parse
+// that failed because it ran out of time (an error matching
+// context.DeadlineExceeded, such as a timed-out Protobuf compile) is evicted
+// at once. The next call parses again, instead of every pipeline using the
+// schema getting the cached timeout until the entry expires.
 func (s Schema) Serde() (Serde, error) {
-	srd, err, _ := globalSerdeCache.Get(s.Fingerprint(), func() (Serde, error) {
+	fp := s.Fingerprint()
+	srd, err, _ := globalSerdeCache.Get(fp, func() (Serde, error) {
 		factory, ok := KnownSerdeFactories[s.Type]
 		if !ok {
 			return nil, fmt.Errorf("failed to get serde for schema type %s: %w", s.Type, ErrUnsupportedType)
@@ -87,6 +103,13 @@ func (s Schema) Serde() (Serde, error) {
 		return srd, nil
 	})
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			// A timeout says nothing about the schema, so it must not be
+			// cached the way a deterministic parse error is. Callers that
+			// joined this same load still get the timeout; the next call
+			// after the eviction starts a fresh parse.
+			_, _, _ = globalSerdeCache.Delete(fp) // only the eviction matters, not the evicted value
+		}
 		return nil, err //nolint:wrapcheck // errors are already wrapped in the miss function
 	}
 	return srd, nil
@@ -113,6 +136,11 @@ type Serde interface {
 	String() string
 }
 
+// SerdeFactory constructs Serdes for one schema Type. Both fields of every
+// entry in KnownSerdeFactories are non-nil: callers index the map and call
+// either function directly, so a nil field would be a nil-func panic rather
+// than an error. A Type that can't support one of the operations returns an
+// error from it instead.
 type SerdeFactory struct {
 	// Parse takes the textual representation of the schema and parses it into
 	// a Schema.
@@ -121,10 +149,29 @@ type SerdeFactory struct {
 	SerdeForType func(v any) (Serde, error)
 }
 
+// KnownSerdeFactories maps every supported schema Type to its SerdeFactory.
 var KnownSerdeFactories = map[Type]SerdeFactory{
 	TypeAvro: {
 		Parse:        func(s []byte) (Serde, error) { return avro.Parse(s) },
 		SerdeForType: func(v any) (Serde, error) { return avro.SerdeForType(v) },
+	},
+	TypeProtobuf: {
+		// This path can't pass per-call options, so the compile runs with
+		// the package-level timeout (protobuf.SetDefaultCompileTimeout).
+		Parse: func(s []byte) (Serde, error) {
+			srd, err := protobuf.Parse(s)
+			if err != nil {
+				return nil, err //nolint:wrapcheck // Schema.Serde wraps it
+			}
+			return srd, nil
+		},
+		// Protobuf support is decode-only: a Protobuf schema can't be
+		// inferred from a Go value (no field numbers, no message identity).
+		// This must stay a function that returns an error, never nil; see
+		// SerdeFactory.
+		SerdeForType: func(any) (Serde, error) {
+			return nil, fmt.Errorf("schema type %s: %w", TypeProtobuf, protobuf.ErrEncodingNotSupported)
+		},
 	},
 }
 
@@ -142,6 +189,8 @@ func (t *Type) UnmarshalText(b []byte) error {
 	switch string(b) {
 	case TypeAvro.String():
 		*t = TypeAvro
+	case TypeProtobuf.String():
+		*t = TypeProtobuf
 	default:
 		// it's not a known type, but we also allow Type(int)
 		valIntRaw := strings.TrimSuffix(strings.TrimPrefix(string(b), "Type("), ")")
