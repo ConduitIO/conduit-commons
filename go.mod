@@ -1,6 +1,6 @@
 module github.com/conduitio/conduit-commons
 
-go 1.24.13
+go 1.25
 
 require (
 	github.com/bufbuild/protocompile v0.14.2-0.20260127163740-a85d2ef77713
@@ -14,7 +14,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/modern-go/reflect2 v1.0.2
 	github.com/rs/zerolog v1.35.1
-	github.com/twmb/go-cache v1.3.0
+	github.com/twmb/go-cache v1.4.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/mock v0.6.0
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546
