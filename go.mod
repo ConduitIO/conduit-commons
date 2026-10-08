@@ -5,7 +5,7 @@ go 1.24.13
 require (
 	github.com/bufbuild/protocompile v0.14.2-0.20260127163740-a85d2ef77713
 	github.com/dgraph-io/badger/v4 v4.9.6
-	github.com/goccy/go-json v0.10.6
+	github.com/goccy/go-json v0.11.2
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/iskorotkov/avro/v2 v2.34.0
