@@ -73,9 +73,14 @@ message Order { string id = 1; }
 	_, err = s.Marshal(map[string]any{"id": "1"})
 	is.True(errors.Is(err, protobuf.ErrEncodingNotSupported))
 
+	// Message index [0] (shortcut), then the payload.
 	var v any
-	err = s.Unmarshal([]byte{0x0a, 0x01, 0x31}, &v)
+	err = s.Unmarshal([]byte{0x00, 0x0a, 0x01, 0x31}, &v)
 	is.True(errors.Is(err, protobuf.ErrDecodeNotImplemented))
+
+	// A payload without a message index is rejected, not decoded.
+	err = s.Unmarshal([]byte{0x0a, 0x01, 0x31}, &v)
+	is.True(errors.Is(err, protobuf.ErrMessageIndex))
 }
 
 func TestSchema_Protobuf_CompileErrorIsUnwrappable(t *testing.T) {

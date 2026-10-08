@@ -46,6 +46,10 @@ var standardImports = protocompile.WithStandardImports(
 type Serde struct {
 	text []byte
 	file protoreflect.FileDescriptor
+
+	// maxIndexDepth is the deepest message nesting in file, which bounds
+	// the length of a valid message index (see messageForIndex).
+	maxIndexDepth int
 }
 
 // Parse compiles .proto source text into a Serde. The source must be a single
@@ -97,7 +101,11 @@ func Parse(text []byte, opts ...Option) (*Serde, error) {
 		return nil, fmt.Errorf("%w: compiler returned %d files for one input", ErrSchemaCompile, len(files))
 	}
 
-	return &Serde{text: src, file: files[0]}, nil
+	return &Serde{
+		text:          src,
+		file:          files[0],
+		maxIndexDepth: messageNestingDepth(files[0].Messages()),
+	}, nil
 }
 
 // classifyCompileError maps a protocompile error onto exactly one sentinel.
@@ -120,9 +128,17 @@ func (s *Serde) Marshal(any) ([]byte, error) {
 	return nil, ErrEncodingNotSupported
 }
 
-// Unmarshal fails with ErrDecodeNotImplemented until message-index handling
-// (PB-2) and field mapping (PB-4) land.
-func (s *Serde) Unmarshal([]byte, any) error {
+// Unmarshal decodes a Confluent Protobuf value. b is the value after the
+// 5-byte Confluent header (magic byte and schema ID), which the caller strips
+// to find the schema: the message index, then the Protobuf payload.
+//
+// A message index that doesn't select a message in the schema fails with
+// ErrMessageIndex. Until field mapping (PB-4) lands, a valid index then fails
+// with ErrDecodeNotImplemented, and v is never written.
+func (s *Serde) Unmarshal(b []byte, _ any) error {
+	if _, _, err := s.messageForIndex(b); err != nil {
+		return err
+	}
 	return ErrDecodeNotImplemented
 }
 

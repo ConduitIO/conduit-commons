@@ -14,6 +14,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/modern-go/reflect2 v1.0.2
 	github.com/rs/zerolog v1.35.1
+	github.com/twmb/franz-go/pkg/sr v1.8.0
 	github.com/twmb/go-cache v1.3.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/mock v0.6.0
