@@ -25,4 +25,18 @@ message Schema {
   Type type = 4;
   // The schema contents.
   bytes bytes = 5;
+  // The other registered schemas this schema refers to (for Protobuf, the
+  // files it imports). Empty for a schema without references.
+  repeated Reference references = 6;
+
+  // Reference is a schema's reference to another registered schema.
+  message Reference {
+    // How the referencing schema refers to the other one. For Protobuf, the
+    // import path.
+    string name = 1;
+    // The subject of the referenced schema.
+    string subject = 2;
+    // The version of the referenced schema.
+    int32 version = 3;
+  }
 }

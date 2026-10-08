@@ -43,7 +43,7 @@ func confluentValue(t *testing.T, index []int) []byte {
 
 func mustParse(t *testing.T, text string) *Serde {
 	t.Helper()
-	srd, err := Parse([]byte(text))
+	srd, err := Parse(t.Context(), []byte(text))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func FuzzMessageIndex(f *testing.F) {
 		f.Add(seed)
 	}
 
-	srd, err := Parse([]byte(nestedSchema))
+	srd, err := Parse(f.Context(), []byte(nestedSchema))
 	if err != nil {
 		f.Fatal(err)
 	}

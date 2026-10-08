@@ -106,7 +106,7 @@ func registerFakeTypeAs(t *testing.T, typ Type, parse func(call int64) (Serde, e
 	}
 	var calls atomic.Int64
 	KnownSerdeFactories[typ] = SerdeFactory{
-		Parse:        func([]byte) (Serde, error) { return parse(calls.Add(1)) },
+		Parse:        func(context.Context, Schema, Resolver) (Serde, error) { return parse(calls.Add(1)) },
 		SerdeForType: func(any) (Serde, error) { return nil, errors.New("not used") },
 	}
 	t.Cleanup(func() { delete(KnownSerdeFactories, typ) })
