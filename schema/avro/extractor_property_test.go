@@ -106,7 +106,7 @@ func genSpec(r *rand.Rand, depth int) valueSpec {
 var specTime = time.Date(2026, 10, 12, 1, 2, 3, 0, time.UTC)
 
 func (s valueSpec) instantiate() any {
-	switch s.kind {
+	switch s.kind { //nolint:exhaustive // kindSlice is the default
 	case kindInt:
 		return 1
 	case kindInt32:
@@ -224,42 +224,49 @@ func TestSerdeForType_PropertyDeterministic(t *testing.T) {
 	t.Logf("%d shapes x %d runs: %d always succeed, %d always fail, %d nondeterministic outcome, %d multiple schemas", n, propertyRepeat, allOK, allErr, mixed, multi)
 }
 
+const goldenShapes = 2000
+
+// updateGolden rewrites the golden file from the current code.
+func updateGolden(t *testing.T) {
+	t.Helper()
+	golden := map[int]string{}
+	for i := range goldenShapes {
+		spec := shapeForIndex(i)
+		// Take the schema the old code produced when it succeeded. Old code is
+		// nondeterministic, so also require that all successful runs agreed; a
+		// disagreement is itself a finding.
+		var first string
+		for range propertyRepeat {
+			o := inferOnce(spec.instantiate())
+			if o.err != "" {
+				continue
+			}
+			if first != "" && first != o.schema {
+				t.Fatalf("shape %d: successful runs disagree:\n%s\n%s", i, first, o.schema)
+			}
+			first = o.schema
+		}
+		if first != "" {
+			golden[i] = schemaHash(first)
+		}
+	}
+	b, err := json.MarshalIndent(golden, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(goldenFile, append(b, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("wrote %d golden schemas out of %d shapes", len(golden), goldenShapes)
+}
+
 // TestSerdeForType_PropertyCompatibleWithGolden asserts that every shape that
 // inferred a schema before the determinism fix still infers byte-identical
 // schema text. Regenerate (only ever from the pre-fix code, to keep it a record
 // of old behaviour) with CONDUIT_UPDATE_GOLDEN=1.
 func TestSerdeForType_PropertyCompatibleWithGolden(t *testing.T) {
-	const goldenShapes = 2000
 	if os.Getenv("CONDUIT_UPDATE_GOLDEN") != "" {
-		golden := map[int]string{}
-		for i := range goldenShapes {
-			spec := shapeForIndex(i)
-			// Take the schema the old code produced when it succeeded. Old
-			// code is nondeterministic, so also require that all successful
-			// runs agreed; a disagreement is itself a finding.
-			var first string
-			for range propertyRepeat {
-				o := inferOnce(spec.instantiate())
-				if o.err != "" {
-					continue
-				}
-				if first != "" && first != o.schema {
-					t.Fatalf("shape %d: successful runs disagree:\n%s\n%s", i, first, o.schema)
-				}
-				first = o.schema
-			}
-			if first != "" {
-				golden[i] = schemaHash(first)
-			}
-		}
-		b, err := json.MarshalIndent(golden, "", " ")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(goldenFile, append(b, '\n'), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("wrote %d golden schemas out of %d shapes", len(golden), goldenShapes)
+		updateGolden(t)
 		return
 	}
 

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math/big"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -32,6 +33,33 @@ var (
 	durationType       = reflect.TypeFor[time.Duration]()
 	bigRatType         = reflect.TypeFor[big.Rat]()
 )
+
+// newCanonicalRecord creates a record schema with its fields ordered by name.
+// Field names are unique within a record, so the order is total.
+func newCanonicalRecord(name string, fields []*avro.Field) (*avro.RecordSchema, error) {
+	sorted := make([]*avro.Field, len(fields))
+	copy(sorted, fields)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name() < sorted[j].Name() })
+	return avro.NewRecordSchema(name, "", sorted) //nolint:wrapcheck // every caller adds the path
+}
+
+// newCanonicalUnion creates a union schema with its members ordered by their
+// canonical string, the same order sortFn gives a finished schema. Members of
+// a union are distinct, so the order is total.
+func newCanonicalUnion(types []avro.Schema) (*avro.UnionSchema, error) {
+	sorted := make([]avro.Schema, len(types))
+	copy(sorted, types)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].String() < sorted[j].String() })
+	return avro.NewUnionSchema(sorted) //nolint:wrapcheck // every caller adds the path
+}
+
+// sortedMapKeys returns the keys of the string keyed map v in sorted order, so
+// a traversal does not depend on Go's randomized map iteration order.
+func sortedMapKeys(v reflect.Value) []reflect.Value {
+	keys := v.MapKeys()
+	sort.Slice(keys, func(i, j int) bool { return keys[i].String() < keys[j].String() })
+	return keys
+}
 
 // extractor exposes a way to extract an Avro schema from a Go value.
 type extractor struct{}
@@ -58,6 +86,18 @@ type extractor struct{}
 //   - If Extract encounters a value with the type of opencdc.StructuredData it
 //     will treat it as a record and extract a record schema, where each key in
 //     the structured data is extracted into its own record field.
+//
+// Extract is deterministic: the schema depends only on the shape of v (field
+// names, value types, element order of slices), never on Go's randomized map
+// iteration order (conduit-commons#292). To guarantee that, every schema this
+// file returns is already canonical: record fields are ordered by name and
+// union members by their canonical string, and maps are always traversed in
+// sorted key order. That matters beyond the final result, because
+// deduplicate decides whether two schemas are "the same" by fingerprint, and a
+// fingerprint covers field and union order. Canonical children are what make
+// two structurally identical records, built from two maps iterated in
+// different orders, compare equal instead of failing with
+// ErrUnsupportedType.
 //
 // avro.NewUnionSchema (github.com/iskorotkov/avro/v2) errors on a
 // zero-length type list, a case new to this package's decode path since
@@ -149,7 +189,7 @@ func (e extractor) extractPointer(path []string, v reflect.Value, t reflect.Type
 		schemas = avro.Schemas{s}
 	}
 
-	s, err = avro.NewUnionSchema(append(schemas, &avro.NullSchema{}))
+	s, err = newCanonicalUnion(append(schemas, &avro.NullSchema{}))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
 	}
@@ -165,7 +205,7 @@ func (e extractor) extractPointer(path []string, v reflect.Value, t reflect.Type
 func (e extractor) extractInterface(path []string, v reflect.Value, _ reflect.Type) (avro.Schema, error) {
 	if !v.IsValid() || v.IsNil() {
 		// unknown type, fall back to nullable string
-		s, err := avro.NewUnionSchema([]avro.Schema{
+		s, err := newCanonicalUnion([]avro.Schema{
 			avro.NewPrimitiveSchema(avro.String, nil),
 			&avro.NullSchema{},
 		})
@@ -218,7 +258,7 @@ func (e extractor) extractSlice(path []string, v reflect.Value, t reflect.Type) 
 		types = append(types, avro.NewPrimitiveSchema(avro.String, nil))
 	}
 
-	itemsSchema, err := avro.NewUnionSchema(types)
+	itemsSchema, err := newCanonicalUnion(types)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
 	}
@@ -237,7 +277,7 @@ func (e extractor) extractMap(path []string, v reflect.Value, t reflect.Type) (a
 		// special case - we treat StructuredData like a struct
 		var fields []*avro.Field
 		valType := t.Elem()
-		for _, keyValue := range v.MapKeys() {
+		for _, keyValue := range sortedMapKeys(v) {
 			fs, err := e.extract(append(path, keyValue.String()), v.MapIndex(keyValue), valType)
 			if err != nil {
 				return nil, err
@@ -248,7 +288,7 @@ func (e extractor) extractMap(path []string, v reflect.Value, t reflect.Type) (a
 			}
 			fields = append(fields, field)
 		}
-		rs, err := avro.NewRecordSchema(strings.Join(path, "."), "", fields)
+		rs, err := newCanonicalRecord(strings.Join(path, "."), fields)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
 		}
@@ -269,7 +309,7 @@ func (e extractor) extractMap(path []string, v reflect.Value, t reflect.Type) (a
 	// this is map[string]any, loop through all values and extracting their
 	// types into a union schema, null is included by default
 	types := []avro.Schema{&avro.NullSchema{}}
-	for _, kv := range v.MapKeys() {
+	for _, kv := range sortedMapKeys(v) {
 		valValue := v.MapIndex(kv)
 		vs, err := e.extract(append(path, "value"), valValue, t.Elem())
 		if err != nil {
@@ -287,7 +327,7 @@ func (e extractor) extractMap(path []string, v reflect.Value, t reflect.Type) (a
 		// it's an empty map, add string to types to have a valid schema
 		types = append(types, avro.NewPrimitiveSchema(avro.String, nil))
 	}
-	vs, err := avro.NewUnionSchema(types)
+	vs, err := newCanonicalUnion(types)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
 	}
@@ -352,7 +392,7 @@ func (e extractor) deduplicate(schemas []avro.Schema) ([]avro.Schema, error) {
 				if len(itemsSchema) == 1 {
 					*s = *avro.NewArraySchema(itemsSchema[0])
 				} else {
-					itemsUnionSchema, err := avro.NewUnionSchema(itemsSchema)
+					itemsUnionSchema, err := newCanonicalUnion(itemsSchema)
 					if err != nil {
 						return fmt.Errorf("failed to create union schema: %w", err)
 					}
@@ -370,7 +410,7 @@ func (e extractor) deduplicate(schemas []avro.Schema) ([]avro.Schema, error) {
 				if len(valuesSchema) == 1 {
 					*s = *avro.NewMapSchema(valuesSchema[0])
 				} else {
-					valuesUnionSchema, err := avro.NewUnionSchema(valuesSchema)
+					valuesUnionSchema, err := newCanonicalUnion(valuesSchema)
 					if err != nil {
 						return fmt.Errorf("failed to create union schema: %w", err)
 					}
@@ -435,7 +475,7 @@ func (e extractor) extractGenericStruct(path []string, v reflect.Value, t reflec
 		}
 		fields = append(fields, field)
 	}
-	rs, err := avro.NewRecordSchema(strings.Join(path, "."), "", fields)
+	rs, err := newCanonicalRecord(strings.Join(path, "."), fields)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", strings.Join(path, "."), err)
 	}
