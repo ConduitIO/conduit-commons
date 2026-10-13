@@ -21,9 +21,9 @@ const _ParameterType_name = "stringintfloatboolfileduration"
 var _ParameterType_index = [...]uint8{0, 6, 9, 14, 18, 22, 30}
 
 func (i ParameterType) String() string {
-	i -= 1
-	if i < 0 || i >= ParameterType(len(_ParameterType_index)-1) {
-		return "ParameterType(" + strconv.FormatInt(int64(i+1), 10) + ")"
+	idx := int(i) - 1
+	if i < 1 || idx >= len(_ParameterType_index)-1 {
+		return "ParameterType(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
-	return _ParameterType_name[_ParameterType_index[i]:_ParameterType_index[i+1]]
+	return _ParameterType_name[_ParameterType_index[idx]:_ParameterType_index[idx+1]]
 }

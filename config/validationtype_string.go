@@ -21,9 +21,9 @@ const _ValidationType_name = "requiredgreater-thanless-thaninclusionexclusionreg
 var _ValidationType_index = [...]uint8{0, 8, 20, 29, 38, 47, 52}
 
 func (i ValidationType) String() string {
-	i -= 1
-	if i < 0 || i >= ValidationType(len(_ValidationType_index)-1) {
-		return "ValidationType(" + strconv.FormatInt(int64(i+1), 10) + ")"
+	idx := int(i) - 1
+	if i < 1 || idx >= len(_ValidationType_index)-1 {
+		return "ValidationType(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
-	return _ValidationType_name[_ValidationType_index[i]:_ValidationType_index[i+1]]
+	return _ValidationType_name[_ValidationType_index[idx]:_ValidationType_index[idx+1]]
 }

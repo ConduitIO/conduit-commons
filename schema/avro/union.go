@@ -23,6 +23,10 @@ import (
 	"github.com/modern-go/reflect2"
 )
 
+// avroArrayType is the Avro type name of an array, used as the union branch
+// name for array values.
+const avroArrayType = "array"
+
 // unionResolver provides hooks before marshaling and after unmarshaling a value
 // with an Avro schema, which make sure that values under the schema type Union
 // are in the correct shape (see https://github.com/hamba/avro#unions --
@@ -420,7 +424,7 @@ func (r unionResolver) resolveNameForType(v any, us *avro.UnionSchema) (string, 
 		names = []string{"map"}
 	case reflect.Slice:
 		if !t.Type1().Elem().AssignableTo(byteType) { // []byte is handled differently
-			names = []string{"array"}
+			names = []string{avroArrayType}
 			break
 		}
 		fallthrough

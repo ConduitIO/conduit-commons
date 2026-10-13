@@ -16,7 +16,10 @@
 // with the Avro spec: https://avro.apache.org/docs/1.8.2/spec.html#schema_fingerprints.
 package rabin
 
-import "hash"
+import (
+	"encoding/binary"
+	"hash"
+)
 
 type digest uint64
 
@@ -39,7 +42,7 @@ func (d *digest) Sum64() uint64 {
 
 func (d *digest) Sum(in []byte) []byte {
 	s := d.Sum64()
-	return append(in, byte(s>>56), byte(s>>48), byte(s>>40), byte(s>>32), byte(s>>24), byte(s>>16), byte(s>>8), byte(s))
+	return binary.BigEndian.AppendUint64(in, s)
 }
 
 func (d *digest) Reset() {
@@ -59,7 +62,7 @@ var rabinTable = newRabinFingerprintTable()
 func newRabinFingerprintTable() [256]uint64 {
 	fpTable := [256]uint64{}
 	for i := 0; i < 256; i++ {
-		fp := uint64(i) //nolint:gosec // this won't overflow, it's between 0 and 256
+		fp := uint64(i)
 		for j := 0; j < 8; j++ {
 			fp = (fp >> 1) ^ (rabinEmpty & -(fp & 1))
 		}
@@ -80,7 +83,7 @@ func Bytes(buf []byte) uint64 {
 func update(d digest, p []byte) digest {
 	fp := uint64(d)
 	for i := 0; i < len(p); i++ {
-		fp = (fp >> 8) ^ rabinTable[(byte(fp)^p[i])&0xff]
+		fp = (fp >> 8) ^ rabinTable[(byte(fp&0xff)^p[i])&0xff]
 	}
 	return digest(fp)
 }

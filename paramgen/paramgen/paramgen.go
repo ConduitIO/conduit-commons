@@ -16,6 +16,7 @@
 package paramgen
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -89,7 +90,7 @@ type moduleError struct {
 }
 
 func parseModule(path string) (module, error) {
-	cmd := exec.Command("go", "list", "-m", "-json")
+	cmd := exec.CommandContext(context.Background(), "go", "list", "-m", "-json")
 	cmd.Dir = path
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -123,9 +124,11 @@ func parsePackage(path string) (*ast.Package, error) {
 	for pkgName, pkg := range pkgs {
 		// Ignore files with go:build constraint set to "tools" (common pattern in
 		// Conduit connectors).
-		maps.DeleteFunc(pkg.Files, func(_ string, f *ast.File) bool {
-			return hasBuildConstraint(f, "tools")
-		})
+		for name, f := range pkg.Files {
+			if hasBuildConstraint(f, "tools") {
+				delete(pkg.Files, name)
+			}
+		}
 		// Remove empty packages or the main package (can't be imported).
 		if len(pkg.Files) == 0 || pkgName == "main" {
 			delete(pkgs, pkgName)
@@ -765,7 +768,7 @@ func (*parameterParser) parseValidation(str string) (config.Validation, error) {
 // packageToPath takes a package import path and returns the path to the directory
 // of that package.
 func (p *parameterParser) packageToPath(pkg string) (string, error) {
-	cmd := exec.Command("go", "list", "-f", "{{.Dir}}", pkg)
+	cmd := exec.CommandContext(context.Background(), "go", "list", "-f", "{{.Dir}}", pkg)
 	cmd.Dir = p.mod.Dir
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
