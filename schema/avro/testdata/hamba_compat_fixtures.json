@@ -1,0 +1,82 @@
+[
+  {
+    "name": "primitives",
+    "schema": "{\"type\":\"record\",\"name\":\"prims\",\"fields\":[{\"name\":\"i\",\"type\":\"int\"},{\"name\":\"l\",\"type\":\"long\"},{\"name\":\"f\",\"type\":\"float\"},{\"name\":\"d\",\"type\":\"double\"},{\"name\":\"s\",\"type\":\"string\"},{\"name\":\"b\",\"type\":\"boolean\"},{\"name\":\"by\",\"type\":\"bytes\"}]}",
+    "hex": "548080808080400000c03f00000000000002401a68c3a96c6c6f2077c3b6726c640108000102ff"
+  },
+  {
+    "name": "extreme integers",
+    "schema": "{\"type\":\"record\",\"name\":\"ints\",\"fields\":[{\"name\":\"imin\",\"type\":\"int\"},{\"name\":\"imax\",\"type\":\"int\"},{\"name\":\"lmin\",\"type\":\"long\"},{\"name\":\"lmax\",\"type\":\"long\"}]}",
+    "hex": "ffffffff0ffeffffff0fffffffffffffffffff01feffffffffffffffff01"
+  },
+  {
+    "name": "array of long",
+    "schema": "{\"type\":\"record\",\"name\":\"arr\",\"fields\":[{\"name\":\"a\",\"type\":{\"type\":\"array\",\"items\":\"long\"}}]}",
+    "hex": "0510020380e0a596bb1100"
+  },
+  {
+    "name": "map of int",
+    "schema": "{\"type\":\"record\",\"name\":\"m\",\"fields\":[{\"name\":\"m\",\"type\":{\"type\":\"map\",\"values\":\"int\"}}]}",
+    "hex": "010602610200"
+  },
+  {
+    "name": "map of int, several entries",
+    "schema": "{\"type\":\"record\",\"name\":\"m\",\"fields\":[{\"name\":\"m\",\"type\":{\"type\":\"map\",\"values\":\"int\"}}]}",
+    "hex": "0510026102026203000600"
+  },
+  {
+    "name": "nullable string, null",
+    "schema": "{\"type\":\"record\",\"name\":\"u\",\"fields\":[{\"name\":\"u\",\"type\":[\"null\",\"string\"]}]}",
+    "hex": "00"
+  },
+  {
+    "name": "nullable string, set",
+    "schema": "{\"type\":\"record\",\"name\":\"u\",\"fields\":[{\"name\":\"u\",\"type\":[\"null\",\"string\"]}]}",
+    "hex": "020278"
+  },
+  {
+    "name": "multi-branch union, int",
+    "schema": "{\"type\":\"record\",\"name\":\"u\",\"fields\":[{\"name\":\"u\",\"type\":[\"null\",\"int\",\"string\"]}]}",
+    "hex": "020e"
+  },
+  {
+    "name": "multi-branch union, string",
+    "schema": "{\"type\":\"record\",\"name\":\"u\",\"fields\":[{\"name\":\"u\",\"type\":[\"null\",\"int\",\"string\"]}]}",
+    "hex": "040a736576656e"
+  },
+  {
+    "name": "nested record",
+    "schema": "{\"type\":\"record\",\"name\":\"outer\",\"fields\":[{\"name\":\"id\",\"type\":\"long\"},{\"name\":\"inner\",\"type\":{\"type\":\"record\",\"name\":\"inner\",\"fields\":[{\"name\":\"name\",\"type\":\"string\"},{\"name\":\"tags\",\"type\":{\"type\":\"array\",\"items\":\"string\"}}]}}]}",
+    "hex": "12026e03080261026200"
+  },
+  {
+    "name": "array of records",
+    "schema": "{\"type\":\"record\",\"name\":\"outer\",\"fields\":[{\"name\":\"rows\",\"type\":{\"type\":\"array\",\"items\":{\"type\":\"record\",\"name\":\"row\",\"fields\":[{\"name\":\"k\",\"type\":\"string\"},{\"name\":\"v\",\"type\":\"double\"}]}}}]}",
+    "hex": "03280261000000000000e03f0262000000000000f0bf00"
+  },
+  {
+    "name": "enum and fixed",
+    "schema": "{\"type\":\"record\",\"name\":\"ef\",\"fields\":[{\"name\":\"e\",\"type\":{\"type\":\"enum\",\"name\":\"color\",\"symbols\":[\"RED\",\"GREEN\",\"BLUE\"]}},{\"name\":\"f\",\"type\":{\"type\":\"fixed\",\"name\":\"four\",\"size\":4}}]}",
+    "hex": "0201020304"
+  },
+  {
+    "name": "decimal",
+    "schema": "{\"type\":\"record\",\"name\":\"dec\",\"fields\":[{\"name\":\"d\",\"type\":{\"type\":\"bytes\",\"logicalType\":\"decimal\",\"precision\":10,\"scale\":3}}]}",
+    "hex": "04cfc7"
+  },
+  {
+    "name": "time-micros",
+    "schema": "{\"type\":\"record\",\"name\":\"tm\",\"fields\":[{\"name\":\"t\",\"type\":{\"type\":\"long\",\"logicalType\":\"time-micros\"}}]}",
+    "hex": "809fc4f0f002"
+  },
+  {
+    "name": "timestamp and date",
+    "schema": "{\"type\":\"record\",\"name\":\"tsd\",\"fields\":[{\"name\":\"ms\",\"type\":{\"type\":\"long\",\"logicalType\":\"timestamp-millis\"}},{\"name\":\"us\",\"type\":{\"type\":\"long\",\"logicalType\":\"timestamp-micros\"}},{\"name\":\"d\",\"type\":{\"type\":\"int\",\"logicalType\":\"date\"}}]}",
+    "hex": "d69be5ecf063f097e0f6d1a98c06a8b602"
+  },
+  {
+    "name": "empty collections",
+    "schema": "{\"type\":\"record\",\"name\":\"e\",\"fields\":[{\"name\":\"a\",\"type\":{\"type\":\"array\",\"items\":\"int\"}},{\"name\":\"m\",\"type\":{\"type\":\"map\",\"values\":\"string\"}},{\"name\":\"s\",\"type\":\"string\"},{\"name\":\"b\",\"type\":\"bytes\"}]}",
+    "hex": "00000000"
+  }
+]

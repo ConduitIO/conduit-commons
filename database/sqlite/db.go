@@ -99,8 +99,8 @@ func (d *DB) Close() error {
 	return nil
 }
 
-func (d *DB) Ping(context.Context) error {
-	if err := d.db.Ping(); err != nil {
+func (d *DB) Ping(ctx context.Context) error {
+	if err := d.db.PingContext(ctx); err != nil {
 		return fmt.Errorf("failed to ping sqlite database: %w", err)
 	}
 	return nil

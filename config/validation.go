@@ -144,6 +144,6 @@ func jsonMarshalValidation(v Validation) ([]byte, error) {
 	//nolint:wrapcheck // no need to wrap this error, this will be called by the JSON lib itself
 	return json.Marshal(map[string]any{
 		"type":  v.Type(),
-		"value": v.Value(),
+		"value": v.Value(), //nolint:goconst // the other occurrences are test fixtures
 	})
 }
