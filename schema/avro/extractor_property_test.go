@@ -19,8 +19,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"math/rand/v2"
 	"os"
+	"reflect"
 	"sort"
 	"testing"
 	"time"
@@ -51,10 +53,29 @@ const (
 	kindNil
 	kindTime
 	kindDuration
-	kindStructured // opencdc.StructuredData
-	kindMap        // map[string]any
-	kindSlice      // []any
+	kindUint32
+	kindRatPtr   // *big.Rat, a nullable decimal
+	kindRatValue // big.Rat, a decimal
+	kindStringPtr
+	kindTimePtr
+	kindStringSlice // []string, a typed slice
+	kindIntMap      // map[string]int, a typed map
+	kindStructured  // opencdc.StructuredData
+	kindMap         // map[string]any
+	kindSlice       // []any
+	kindGoStruct    // struct with an any field and time fields, built with reflect.StructOf
 )
+
+// lastLeafKind is the last kind that has no children.
+const lastLeafKind = kindIntMap
+
+// goStructType is a struct type like the ones a connector might pass as a
+// record: an interface field, a time field, and a pointer field.
+var goStructType = reflect.StructOf([]reflect.StructField{
+	{Name: "Any", Type: reflect.TypeFor[any](), Tag: `json:"any"`},
+	{Name: "At", Type: reflect.TypeFor[time.Time](), Tag: `json:"at"`},
+	{Name: "Opt", Type: reflect.TypeFor[*time.Time](), Tag: `json:"opt"`},
+})
 
 // valueSpec describes the shape of a value without holding any Go map, so
 // instantiate can build a fresh value (and a fresh map iteration order) from
@@ -72,20 +93,25 @@ var specKeyPool = []string{"a", "b", "c", "d", "id", "name", "x", "y", "z", "ts"
 // is the case that exercises union deduplication.
 func genSpec(r *rand.Rand, depth int) valueSpec {
 	if depth >= 4 || r.IntN(10) < 4 {
-		return valueSpec{kind: specKind(r.IntN(int(kindDuration) + 1))}
+		return valueSpec{kind: specKind(r.IntN(int(lastLeafKind) + 1))}
 	}
 	var s valueSpec
-	switch r.IntN(3) {
+	switch r.IntN(4) {
 	case 0:
 		s.kind = kindStructured
 	case 1:
 		s.kind = kindMap
-	default:
+	case 2:
 		s.kind = kindSlice
+	default:
+		s.kind = kindGoStruct
 	}
 	n := 1 + r.IntN(5)
-	if s.kind == kindSlice {
+	switch s.kind { //nolint:exhaustive // only containers get here
+	case kindSlice:
 		n = r.IntN(4)
+	case kindGoStruct:
+		n = 1 // the value of the any field
 	}
 	keys := r.Perm(len(specKeyPool))
 	for i := range n {
@@ -95,7 +121,7 @@ func genSpec(r *rand.Rand, depth int) valueSpec {
 		} else {
 			e = genSpec(r, depth+1)
 		}
-		if s.kind != kindSlice {
+		if s.kind == kindStructured || s.kind == kindMap {
 			s.names = append(s.names, specKeyPool[keys[i%len(keys)]]+fmt.Sprint(i/len(keys)))
 		}
 		s.elems = append(s.elems, e)
@@ -127,6 +153,29 @@ func (s valueSpec) instantiate() any {
 		return specTime
 	case kindDuration:
 		return time.Second
+	case kindUint32:
+		return uint32(3)
+	case kindRatPtr:
+		return big.NewRat(1, 3)
+	case kindRatValue:
+		return *big.NewRat(2, 3)
+	case kindStringPtr:
+		str := "p"
+		return &str
+	case kindTimePtr:
+		ts := specTime
+		return &ts
+	case kindStringSlice:
+		return []string{"a", "b"}
+	case kindIntMap:
+		return map[string]int{"a": 1, "b": 2}
+	case kindGoStruct:
+		v := reflect.New(goStructType).Elem()
+		if inner := s.elems[0].instantiate(); inner != nil {
+			v.Field(0).Set(reflect.ValueOf(inner))
+		}
+		v.Field(1).Set(reflect.ValueOf(specTime))
+		return v.Interface()
 	case kindStructured:
 		m := make(opencdc.StructuredData, len(s.elems))
 		for i, e := range s.elems {
