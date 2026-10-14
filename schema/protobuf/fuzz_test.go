@@ -49,12 +49,15 @@ func FuzzParse(f *testing.F) {
 		"syntax = \"proto3\"; message M { string s = 1 [default = \"\xff\"]; }",
 		strings.Repeat("message M { ", 100) + strings.Repeat("}", 100),
 		`{"type": "record", "name": "avro"}`,
+		// Three bytes that panic protocompile's lexer; it recovers and the
+		// compile fails closed with ErrSchemaCompile.
+		"\"\\\xf5",
 	} {
 		f.Add([]byte(seed))
 	}
 
 	f.Fuzz(func(t *testing.T, text []byte) {
-		srd, err := Parse(text)
+		srd, err := Parse(t.Context(), text)
 		if err != nil {
 			if srd != nil {
 				t.Fatalf("Parse returned both a Serde and an error: %v", err)

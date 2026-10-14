@@ -23,4 +23,9 @@ var (
 
 	// ErrUnsupportedType is returned when an unsupported type is encountered.
 	ErrUnsupportedType = errors.New("unsupported type")
+
+	// ErrResolverRequired is returned by Schema.Serde and
+	// Schema.SerdeWithResolver when the schema has References and no
+	// Resolver was given to fetch them. Use SerdeWithResolver.
+	ErrResolverRequired = errors.New("schema has references but no resolver was given")
 )

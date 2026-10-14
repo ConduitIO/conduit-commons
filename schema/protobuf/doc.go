@@ -21,12 +21,12 @@
 // docs/design-documents/20260823-protobuf-schema-support.md; this package
 // grows in the slices listed there:
 //
-//   - PB-1: Parse for a single, self-contained .proto file. The standard
-//     google/protobuf/*.proto imports resolve; any other import is a schema
-//     reference and fails with ErrReferencesNotSupported.
-//   - PB-2 (this state): Confluent message-index handling, selecting the
-//     message a payload was encoded with.
-//   - PB-3: schema-reference resolution against the registry.
+//   - PB-1: Parse for a single .proto file, importing only the standard
+//     google/protobuf/*.proto files.
+//   - PB-2: Confluent message-index handling, selecting the message a payload
+//     was encoded with.
+//   - PB-3 (this state): schema-reference resolution through a caller-supplied
+//     resolver, and a caller context that cancels the parse.
 //   - PB-4: decoding a payload into structured data.
 //
 // Until PB-4 lands, Serde.Unmarshal resolves the message index and then
@@ -50,6 +50,55 @@
 // The timeout bounds how long Parse blocks, not how long protocompile works:
 // protocompile stops scheduling work when its context ends, but a file
 // already being parsed finishes in the background before its goroutine exits.
+// The schema size cap bounds that orphaned work.
+//
+// # Schema size cap
+//
+// Parse rejects a schema whose source, plus the source of every schema it
+// references, exceeds the cap with ErrSchemaTooLarge, before compiling. The
+// cap defaults to DefaultMaxSchemaSize, can be changed per call with
+// WithMaxSchemaSize or process-wide with SetDefaultMaxSchemaSize, and can't be
+// disabled.
+//
+// # Schema references
+//
+// A Confluent Protobuf schema can import other registered schemas. Each
+// import path is the Name of one of the schema's references, which names a
+// subject and version in the registry. WithReferences gives Parse those
+// references and a ResolveFunc that fetches them. Parse resolves them
+// depth-first, with their own references, before compiling, and then
+// compiles everything together. A reference reached twice is fetched once.
+// A version must be at least 1; "latest" is not accepted, because the cached
+// Serde would then depend on when it was first parsed.
+//
+// The standard google/protobuf/*.proto files are built in and always win: if
+// a schema declares a reference named like a bundled file, for example
+// google/protobuf/timestamp.proto, the declared text is ignored and the
+// built-in file is used. Otherwise a registered copy could redefine a
+// well-known type for every schema that imports it.
+//
+// A file other than a built-in one that declares the package google.protobuf,
+// or one under it, fails with ErrReservedPackage: it could redefine a
+// well-known type for the schemas that import it, under a path the built-in
+// precedence does not cover.
+//
+// Reference resolution is also bounded by DefaultResolveTimeout (30s for the
+// whole walk); WithResolveTimeout changes it for one call, and the caller's
+// context deadline applies too, whichever is earlier. Running out of the
+// resolution timeout is ErrReferenceResolve.
+//
+// The walk is guarded, because each step is a registry fetch and
+// protocompile's own import-cycle check only sees import paths, not
+// subjects: a reference back to a schema still being resolved fails with
+// ErrReferenceCycle, a chain deeper than MaxReferenceDepth, more than
+// MaxReferences distinct schemas or more than MaxReferenceEdges reference
+// entries fails with ErrReferenceLimit, and the size cap counts every
+// referenced source and every import name. A schema imported under several
+// names is walked once, so the work is linear in the number of entries. A resolver failure is
+// ErrReferenceResolve; schema.Schema.Serde does not cache it.
+//
+// Resolution is bounded by the caller's context and the resolver, not by the
+// compile timeout, which starts after it.
 //
 // # Message index
 //
@@ -67,8 +116,10 @@
 // # Errors
 //
 // Every error Parse returns matches exactly one of ErrInvalidOption,
-// ErrCompileTimeout, ErrReferencesNotSupported or ErrSchemaCompile under
-// errors.Is. Every error Serde.Unmarshal returns matches exactly one of
+// ErrCanceled, ErrCompileTimeout, ErrSchemaTooLarge, ErrReferenceResolve,
+// ErrReferenceCycle, ErrReferenceLimit, ErrInvalidReference,
+// ErrReservedPackage, ErrUnresolvedImport or ErrSchemaCompile under errors.Is. Every error
+// Serde.Unmarshal returns matches exactly one of
 // ErrMessageIndex or ErrDecodeNotImplemented. These sentinels are the stable
 // identities that callers (the conduit protobuf.decode processor) map to
 // error codes.

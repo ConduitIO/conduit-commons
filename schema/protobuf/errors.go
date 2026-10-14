@@ -45,14 +45,53 @@ var (
 	// cache it.
 	ErrCompileTimeout = errors.New("protobuf schema compile timed out")
 
-	// ErrReferencesNotSupported is returned by Parse when the schema imports
-	// a file other than a standard google/protobuf/*.proto import. Such an
-	// import is a schema reference to another registry subject, which is not
-	// resolved yet (PB-3).
-	ErrReferencesNotSupported = errors.New("protobuf schema references are not supported")
+	// ErrUnresolvedImport is returned by Parse when the schema imports a
+	// file that is neither a standard google/protobuf/*.proto import nor the
+	// name of one of its references.
+	ErrUnresolvedImport = errors.New("protobuf schema import is not a declared reference")
+
+	// ErrReferenceResolve is returned by Parse when the ResolveFunc fails to
+	// fetch a reference, or when the schema has references and no ResolveFunc
+	// was given. It wraps the resolver's error. It says nothing about the
+	// schema itself (the registry may be unreachable), so schema.Schema.Serde
+	// does not cache it.
+	ErrReferenceResolve = errors.New("failed to resolve protobuf schema reference")
+
+	// ErrReferenceCycle is returned by Parse when a schema's references lead
+	// back to a schema that is still being resolved (A -> B -> A).
+	ErrReferenceCycle = errors.New("protobuf schema references form a cycle")
+
+	// ErrReferenceLimit is returned by Parse when a reference chain is
+	// deeper than MaxReferenceDepth, a schema reaches more than
+	// MaxReferences distinct schemas, or its references have more than
+	// MaxReferenceEdges entries in all.
+	ErrReferenceLimit = errors.New("protobuf schema references exceed a limit")
+
+	// ErrInvalidReference is returned by Parse for a reference that can't be
+	// compiled as given: no name or subject, the name reserved for the
+	// schema being parsed, a version below 1, or one import name used for
+	// two different schemas.
+	ErrInvalidReference = errors.New("invalid protobuf schema reference")
+
+	// ErrReservedPackage is returned by Parse when the schema, or a schema it
+	// imports, declares the package google.protobuf (or one under it) in a
+	// file that is not one of the built-in google/protobuf/*.proto files.
+	// Such a file could redefine a well-known type for every schema that
+	// imports it.
+	ErrReservedPackage = errors.New("protobuf schema declares a reserved package")
+
+	// ErrSchemaTooLarge is returned by Parse when the schema source, plus
+	// the source of every schema it references, exceeds the schema size cap.
+	ErrSchemaTooLarge = errors.New("protobuf schema is too large")
+
+	// ErrCanceled is returned by Parse when the caller's context ends before
+	// the schema is resolved and compiled. The returned error also matches
+	// the context's error (context.Canceled or context.DeadlineExceeded).
+	ErrCanceled = errors.New("protobuf schema parse canceled")
 
 	// ErrInvalidOption is returned by Parse (for a rejected Option, such as
-	// WithCompileTimeout(0)) and by SetDefaultCompileTimeout when given a
-	// value it rejects. The compile timeout must be > 0.
+	// WithCompileTimeout(0)) and by SetDefaultCompileTimeout and
+	// SetDefaultMaxSchemaSize when given a value they reject. The compile
+	// timeout and the schema size cap must be > 0.
 	ErrInvalidOption = errors.New("invalid protobuf serde option")
 )
