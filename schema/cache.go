@@ -15,6 +15,7 @@
 package schema
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"sync"
@@ -30,11 +31,17 @@ import (
 // The cache never returns a nil Serde with a nil error: a load that produces
 // one is reported as errNilSerde and not cached.
 //
-// The cache holds at most maxEntries entries. When a new load would exceed
-// that, the finished entry that expires first is evicted. A load in flight is
-// never evicted; if every entry is one, the new load runs without being
-// cached (and without single-flight) instead of blocking or growing the
-// cache.
+// The cache holds at most maxEntries entries, in flight or finished, and the
+// cap is enforced under the lock that inserts: room is made before a new
+// entry goes in, so the map never exceeds it, not even briefly. Making room
+// evicts the finished entry that expires first, in O(1): finished entries sit
+// in a list in the order they finished, which, with one maxAge, is expiry
+// order. A load in flight is never evicted (that would let a second load of
+// the same key start). If every entry is a load in flight, the new load runs
+// without being cached and without single-flight, on its caller's goroutine:
+// it neither blocks nor adds to the map. The number of such loads is bounded
+// by the number of concurrent callers, and each holds nothing after it
+// returns.
 //
 // Results, errors included, are kept for maxAge. A load that fails with a
 // transient error (see isTransientParseError) is not kept at all: the loading
@@ -45,21 +52,20 @@ import (
 //
 // The cache assumes one schema registry per process: a key (type,
 // fingerprint, references) names the same schema for every caller, whichever
-// Resolver they pass. Expired entries are dropped lazily, at most once an
-// hour, so an idle process holds on to them but never grows without bound
-// under load and has no goroutine to leak.
+// Resolver they pass. Expired entries are dropped lazily, from the front of the
+// finished list, as callers arrive, so there is no goroutine to leak and an
+// idle process keeps its last entries until the next call.
 type serdeCache struct {
 	maxAge     time.Duration
 	maxEntries int
 	now        func() time.Time // replaced in tests
 
-	mu        sync.Mutex
-	entries   map[serdeCacheKey]*serdeEntry
-	lastSweep time.Time
+	mu      sync.Mutex
+	entries map[serdeCacheKey]*serdeEntry
+	// finished lists the keys of the finished, kept entries in the order they
+	// finished, oldest first. In-flight entries are not in it.
+	finished *list.List // of serdeCacheKey
 }
-
-// serdeSweepInterval is how often get drops expired entries.
-const serdeSweepInterval = time.Hour
 
 // DefaultSerdeCacheSize is the most Serdes the process-wide cache holds.
 const DefaultSerdeCacheSize = 4096
@@ -82,10 +88,12 @@ type serdeEntry struct {
 	// expires is set before done is closed. It is only read for entries
 	// found in the map after done is closed.
 	expires time.Time
+	// elem is the entry's place in serdeCache.finished, nil while in flight.
+	elem *list.Element
 }
 
 func newSerdeCache(maxAge time.Duration, maxEntries int, now func() time.Time) *serdeCache {
-	return &serdeCache{maxAge: maxAge, maxEntries: maxEntries, now: now, entries: make(map[serdeCacheKey]*serdeEntry)}
+	return &serdeCache{maxAge: maxAge, maxEntries: maxEntries, now: now, entries: make(map[serdeCacheKey]*serdeEntry), finished: list.New()}
 }
 
 // errNilSerde is what a load that returned a nil Serde with a nil error
@@ -108,7 +116,7 @@ var errLoadPanicked = errors.New("schema cache: load panicked")
 func (c *serdeCache) get(ctx context.Context, key serdeCacheKey, load func() (Serde, error)) (srd Serde, ran bool, err error) {
 	c.mu.Lock()
 	now := c.now()
-	c.sweepLocked(now)
+	c.dropExpiredLocked(now)
 	if e, ok := c.entries[key]; ok {
 		select {
 		case <-e.done:
@@ -116,7 +124,7 @@ func (c *serdeCache) get(ctx context.Context, key serdeCacheKey, load func() (Se
 				c.mu.Unlock()
 				return e.srd, false, e.err
 			}
-			delete(c.entries, key) // expired; load again below
+			c.removeLocked(key, e) // expired; load again below
 		default:
 			c.mu.Unlock()
 			select {
@@ -127,7 +135,7 @@ func (c *serdeCache) get(ctx context.Context, key serdeCacheKey, load func() (Se
 			}
 		}
 	}
-	if len(c.entries) >= c.maxEntries && !c.evictOneLocked() {
+	if len(c.entries) >= c.maxEntries && !c.evictOldestLocked() {
 		// Every entry is a load in flight, so there is nothing to evict.
 		// Load without caching, rather than block this caller or let the
 		// cache grow past the cap.
@@ -179,47 +187,43 @@ func (c *serdeCache) finish(key serdeCacheKey, e *serdeEntry, drop bool) {
 		}
 	} else {
 		e.expires = c.now().Add(c.maxAge)
+		e.elem = c.finished.PushBack(key)
 	}
 	c.mu.Unlock()
 	close(e.done)
 }
 
-// evictOneLocked removes the finished entry that expires first and reports
-// whether there was one. Entries still loading are skipped: removing one
-// would let a second load of the same key start while the first is running.
-func (c *serdeCache) evictOneLocked() bool {
-	var (
-		oldestKey serdeCacheKey
-		oldest    *serdeEntry
-	)
-	for k, e := range c.entries {
-		select {
-		case <-e.done:
-			if oldest == nil || e.expires.Before(oldest.expires) {
-				oldestKey, oldest = k, e
-			}
-		default: // still loading
-		}
+// removeLocked deletes e, stored under key, from the map and the finished
+// list.
+func (c *serdeCache) removeLocked(key serdeCacheKey, e *serdeEntry) {
+	delete(c.entries, key)
+	if e.elem != nil {
+		c.finished.Remove(e.elem)
+		e.elem = nil
 	}
-	if oldest == nil {
+}
+
+// evictOldestLocked removes the finished entry that expires first and
+// reports whether there was one.
+func (c *serdeCache) evictOldestLocked() bool {
+	front := c.finished.Front()
+	if front == nil {
 		return false
 	}
-	delete(c.entries, oldestKey)
+	key := front.Value.(serdeCacheKey) //nolint:forcetypeassert // the list only holds keys
+	c.removeLocked(key, c.entries[key])
 	return true
 }
 
-func (c *serdeCache) sweepLocked(now time.Time) {
-	if now.Sub(c.lastSweep) < serdeSweepInterval {
-		return
-	}
-	c.lastSweep = now
-	for k, e := range c.entries {
-		select {
-		case <-e.done:
-			if !now.Before(e.expires) {
-				delete(c.entries, k)
-			}
-		default: // still loading
+// dropExpiredLocked removes expired entries from the front of the finished
+// list. Each entry is removed once, so the cost is amortized O(1) per call.
+func (c *serdeCache) dropExpiredLocked(now time.Time) {
+	for front := c.finished.Front(); front != nil; front = c.finished.Front() {
+		key := front.Value.(serdeCacheKey) //nolint:forcetypeassert // the list only holds keys
+		e := c.entries[key]
+		if now.Before(e.expires) {
+			return
 		}
+		c.removeLocked(key, e)
 	}
 }

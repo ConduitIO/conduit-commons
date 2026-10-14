@@ -424,3 +424,81 @@ func TestSerdeCacheSize_ReportsTheGlobalCache(t *testing.T) {
 		t.Fatalf("size went from %d to %d", before, SerdeCacheSize())
 	}
 }
+
+// Hammer distinct schemas from many goroutines while an observer polls the
+// size, and check the size from inside loads too: the map must never exceed
+// the cap at any observation point, in flight entries included. Run with
+// -race.
+func TestSerdeCache_MapNeverExceedsCap(t *testing.T) {
+	const maxEntries = 32
+	c := newSerdeCache(4*time.Hour, maxEntries, time.Now)
+	var maxSeen, violations atomic.Int64
+	observe := func() {
+		n := int64(c.size())
+		for {
+			old := maxSeen.Load()
+			if n <= old || maxSeen.CompareAndSwap(old, n) {
+				break
+			}
+		}
+		if n > maxEntries {
+			violations.Add(1)
+		}
+	}
+
+	stop := make(chan struct{})
+	observed := make(chan struct{})
+	go func() {
+		defer close(observed)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				observe()
+			}
+		}
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	var wg sync.WaitGroup
+	for g := range 128 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; time.Now().Before(deadline); i++ {
+				fp := uint64(g)<<32 | uint64(i)
+				_, _, _ = c.get(t.Context(), serdeCacheKey{typ: Type(7), fingerprint: fp}, func() (Serde, error) {
+					observe() // this load is in flight
+					time.Sleep(time.Duration(i%4) * 50 * time.Microsecond)
+					return fakeSerde{}, nil
+				})
+				observe()
+			}
+		}()
+	}
+	wg.Wait()
+	close(stop)
+	<-observed
+
+	if violations.Load() != 0 {
+		t.Fatalf("size exceeded %d %d times (max seen %d)", maxEntries, violations.Load(), maxSeen.Load())
+	}
+	if maxSeen.Load() < maxEntries {
+		t.Fatalf("max seen %d: the flood never reached the cap, so the test proved nothing", maxSeen.Load())
+	}
+}
+
+func TestSerdeCache_ExpiredEntriesLeaveTheFinishedList(t *testing.T) {
+	c, clk := newTestCache()
+	for i := range 10 {
+		_, _, _ = c.get(t.Context(), serdeCacheKey{typ: Type(7), fingerprint: uint64(i)}, func() (Serde, error) { return fakeSerde{}, nil })
+	}
+	clk.advance(5 * time.Hour)
+	_, _, _ = c.get(t.Context(), testKey, func() (Serde, error) { return fakeSerde{}, nil })
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.entries) != 1 || c.finished.Len() != 1 {
+		t.Fatalf("entries=%d finished=%d, want 1 and 1", len(c.entries), c.finished.Len())
+	}
+}
