@@ -119,4 +119,63 @@ message Order {
   example.v1.DoesNotExist thing = 1;
 }
 `
+
+	// Message indexes (see messageForIndex), in declaration order:
+	//   [0]          Envelope
+	//   [0 0]        Envelope.Header
+	//   [0 1]        Envelope.Body
+	//   [0 1 0]      Envelope.Body.Part
+	//   [0 1 1]      Envelope.Body.Attachment
+	//   [0 1 1 0]    Envelope.Body.Attachment.Meta
+	//   [1]          Audit
+	//   [1 0]        Audit.Change
+	//   [2]          Tags
+	//   [2 0]        Tags.ValuesEntry (synthetic map entry)
+	nestedSchema = `syntax = "proto3";
+
+package example.v1;
+
+message Envelope {
+  message Header {
+    string id = 1;
+  }
+  message Body {
+    message Part {
+      string text = 1;
+    }
+    message Attachment {
+      message Meta {
+        string name = 1;
+      }
+      bytes data = 1;
+      Meta meta = 2;
+    }
+    repeated Part parts = 1;
+    repeated Attachment attachments = 2;
+  }
+  Header header = 1;
+  Body body = 2;
+}
+
+message Audit {
+  message Change {
+    string field = 1;
+  }
+  string actor = 1;
+  repeated Change changes = 2;
+}
+
+message Tags {
+  map<string, string> values = 1;
+}
+`
+
+	noMessagesSchema = `syntax = "proto3";
+
+package example.v1;
+
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+}
+`
 )
