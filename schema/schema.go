@@ -83,6 +83,11 @@ type Reference struct {
 // version and type, and map registry errors to status and error codes without
 // passing the raw response body through.
 //
+// An implementation must cap the size of the response body it reads from the
+// registry itself: a result over the Protobuf schema size cap is rejected
+// without being copied, but it is already in memory when ResolveReference
+// returns.
+//
 // A Resolver must not call SerdeWithResolver for the schema being parsed (or
 // one that leads back to it): that call waits for the parse it is part of,
 // and deadlocks until its context ends.

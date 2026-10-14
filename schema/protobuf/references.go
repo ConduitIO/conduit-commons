@@ -62,6 +62,11 @@ type ReferencedSchema struct {
 // ResolveFunc fetches the schema a Reference points to, usually from the
 // schema registry. It must honor ctx. Its errors are wrapped in
 // ErrReferenceResolve.
+//
+// An implementation must cap the size of the response it reads from the
+// registry itself. Parse rejects a result over the schema size cap without
+// copying it, but the bytes are already in memory by the time ResolveFunc
+// returns.
 type ResolveFunc func(ctx context.Context, ref Reference) (ReferencedSchema, error)
 
 type refKey struct {
@@ -222,6 +227,12 @@ func (w *referenceWalk) fetch(ctx context.Context, ref Reference) (ReferencedSch
 			return ReferencedSchema{}, ctxErr // classified as ErrCanceled by Parse
 		}
 		return ReferencedSchema{}, fmt.Errorf("%w: %s: %w", ErrReferenceResolve, refString(ref), err)
+	}
+	if w.size+len(rs.Text) > w.maxSize {
+		// Checked before the copy below: a response far over the cap must
+		// not be duplicated first. (The resolver has allocated it already;
+		// it is the resolver's job to cap the body it reads.)
+		return ReferencedSchema{}, fmt.Errorf("%w: the schema and its references exceed %d bytes (%s is %d bytes)", ErrSchemaTooLarge, w.maxSize, refString(ref), len(rs.Text))
 	}
 	return ReferencedSchema{
 		Text:       bytes.Clone(rs.Text),

@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -804,5 +805,28 @@ func parseWithGuard(ctx context.Context, t *testing.T, text []byte, opts ...Opti
 	case <-time.After(5 * time.Second):
 		t.Fatal("Parse did not return within 5s: the resolution timeout is not ending the wait")
 		return nil
+	}
+}
+
+// A resolver result far over the size cap is rejected without being copied.
+// The 64 MiB body is allocated once, before the measurement; Parse must not
+// allocate anything near it.
+func TestParse_References_OversizedResultIsNotCopied(t *testing.T) {
+	is := is.New(t)
+	body := make([]byte, 64<<20)
+	resolve := func(context.Context, Reference) (ReferencedSchema, error) {
+		return ReferencedSchema{Text: body}, nil
+	}
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	_, err := Parse(t.Context(), []byte(referenceSchema), WithReferences([]Reference{customerRef}, resolve))
+	runtime.ReadMemStats(&after)
+
+	is.Equal(matchingSentinels(err), []error{ErrSchemaTooLarge})
+	is.True(strings.Contains(err.Error(), "67108864 bytes"))
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 8<<20 {
+		t.Fatalf("Parse allocated %d bytes for a 64 MiB result over a 1 MiB cap; it copied the body", allocated)
 	}
 }
