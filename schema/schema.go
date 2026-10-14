@@ -27,7 +27,6 @@ import (
 	"github.com/conduitio/conduit-commons/rabin"
 	"github.com/conduitio/conduit-commons/schema/avro"
 	"github.com/conduitio/conduit-commons/schema/protobuf"
-	"github.com/twmb/go-cache/cache"
 )
 
 // Type identifies the format of a schema. Its numeric values are a wire
@@ -84,46 +83,62 @@ func (s Schema) Fingerprint() uint64 {
 }
 
 // Serde returns the serde for the schema. Serdes are cached process-wide by
-// schema fingerprint, and so are parse errors, with one exception: a parse
+// schema type and fingerprint, and so are parse errors, with one exception: a parse
 // that failed because it ran out of time (an error matching
 // context.DeadlineExceeded, such as a timed-out Protobuf compile) is evicted
 // at once. The next call parses again, instead of every pipeline using the
 // schema getting the cached timeout until the entry expires.
 func (s Schema) Serde() (Serde, error) {
-	fp := s.Fingerprint()
-	srd, err, _ := globalSerdeCache.Get(fp, func() (Serde, error) {
-		factory, ok := KnownSerdeFactories[s.Type]
-		if !ok {
-			return nil, fmt.Errorf("failed to get serde for schema type %s: %w", s.Type, ErrUnsupportedType)
+	key := serdeCacheKey{typ: s.Type, fingerprint: s.Fingerprint()}
+	var err error
+	for range maxNilSerdeRetries + 1 {
+		var srd Serde
+		srd, _, err = globalSerdeCache.get(context.Background(), key, func() (Serde, error) {
+			factory, ok := KnownSerdeFactories[s.Type]
+			if !ok {
+				return nil, fmt.Errorf("failed to get serde for schema type %s: %w", s.Type, ErrUnsupportedType)
+			}
+			srd, err := factory.Parse(s.Bytes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse schema of type %s: %w", s.Type, err)
+			}
+			return srd, nil
+		})
+		if err == nil {
+			return srd, nil
 		}
-		srd, err := factory.Parse(s.Bytes)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse schema of type %s: %w", s.Type, err)
+		if !errors.Is(err, errNilSerde) {
+			return nil, err
 		}
-		return srd, nil
-	})
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			// A timeout says nothing about the schema, so it must not be
-			// cached the way a deterministic parse error is. Callers that
-			// joined this same load still get the timeout; the next call
-			// after the eviction starts a fresh parse.
-			_, _, _ = globalSerdeCache.Delete(fp) // only the eviction matters, not the evicted value
-		}
-		return nil, err //nolint:wrapcheck // errors are already wrapped in the miss function
+		// The cache never keeps errNilSerde; load again.
 	}
-	return srd, nil
+	return nil, err
 }
 
-// globalSerdeCache is a concurrency safe cache of serdes by schema fingerprint.
-// Every process uses a global cache to avoid re-parsing the same schema multiple
-// times. Since the cache is global, it is important to ensure that the cache is
-// cleaned up periodically to avoid memory leaks (e.g. if a pipeline is stopped
-// and the schemas it processed are no longer needed).
-var globalSerdeCache = cache.New[uint64, Serde](
-	cache.AutoCleanInterval(time.Hour), // clean up every hour
-	cache.MaxAge(4*time.Hour),          // expire entries after 4 hours
-)
+// maxNilSerdeRetries bounds how often Serde reloads after a load that
+// produced no Serde and no error.
+const maxNilSerdeRetries = 3
+
+// isTransientParseError reports whether a parse error says nothing about the
+// schema itself, so caching it would fail every later call for no reason.
+func isTransientParseError(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errNilSerde)
+}
+
+// serdeCacheKey identifies a cached Serde. The fingerprint covers only the
+// schema bytes, so the type has to be part of the key: the same bytes
+// registered under two types must parse with each type's own factory, and
+// must not share a Serde or a cached parse error.
+type serdeCacheKey struct {
+	typ         Type
+	fingerprint uint64
+}
+
+// globalSerdeCache caches Serdes by schema type and fingerprint. Every
+// process uses a global cache to avoid re-parsing the same schema multiple
+// times; entries expire after 4 hours, so schemas no pipeline uses any more
+// are dropped.
+var globalSerdeCache = newSerdeCache(4*time.Hour, time.Now)
 
 // Serde represents a serializer/deserializer.
 type Serde interface {
