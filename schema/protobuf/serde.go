@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"strings"
 
 	"github.com/bufbuild/protocompile"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -60,7 +61,10 @@ type Serde struct {
 // ErrUnresolvedImport.
 //
 // ctx bounds the whole call: cancelling it stops reference resolution and the
-// compile, and Parse returns ErrCanceled. The compile is also bounded by the
+// compile, and Parse returns ErrCanceled. Reference resolution is also bounded
+// by the resolution timeout (DefaultResolveTimeout, WithResolveTimeout); the
+// earlier of that and ctx's deadline ends it. Running out of the resolution
+// timeout is ErrReferenceResolve. The compile is also bounded by the
 // compile timeout, and the source plus all referenced sources by the schema
 // size cap (see the package doc). Every returned error matches exactly one
 // sentinel listed there. Parse does not retain text or the resolved sources;
@@ -81,13 +85,8 @@ func Parse(ctx context.Context, text []byte, opts ...Option) (*Serde, error) {
 	// background goroutine after Parse returns, and the caller owns text.
 	src := bytes.Clone(text)
 
-	// Resolution runs before the compile timeout starts: it is network I/O
-	// bounded by ctx and the resolver, not compile work.
-	imports, err := resolveReferences(ctx, o.references, o.resolve, len(src), o.maxSchemaSize)
+	imports, err := resolveWithTimeout(ctx, o, len(src))
 	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, fmt.Errorf("%w: %w", ErrCanceled, ctxErr)
-		}
 		return nil, err
 	}
 
@@ -102,13 +101,16 @@ func Parse(ctx context.Context, text []byte, opts ...Option) (*Serde, error) {
 				}
 				return protocompile.SearchResult{Source: bytes.NewReader(src)}, nil
 			}
-			// A declared reference wins over a standard import of the same
-			// path: it is the copy the producer registered.
-			if imported, ok := imports[path]; ok {
-				return protocompile.SearchResult{Source: bytes.NewReader(imported)}, nil
-			}
+			// The built-in google/protobuf/*.proto files win over a declared
+			// reference of the same name. A registered copy could redefine a
+			// well-known type (a Timestamp whose seconds is a string), and
+			// every schema that imports it would then decode against that
+			// definition. The declared text is ignored.
 			if res, err := standardImports.FindFileByPath(path); err == nil {
 				return res, nil
+			}
+			if imported, ok := imports[path]; ok {
+				return protocompile.SearchResult{Source: bytes.NewReader(imported)}, nil
 			}
 			return protocompile.SearchResult{}, fmt.Errorf("%w: import %q", ErrUnresolvedImport, path)
 		}),
@@ -126,12 +128,42 @@ func Parse(ctx context.Context, text []byte, opts ...Option) (*Serde, error) {
 		// compile; fail closed rather than return a Serde with no schema.
 		return nil, fmt.Errorf("%w: compiler returned %d files for one input", ErrSchemaCompile, len(files))
 	}
+	if err := checkReservedPackages(files[0]); err != nil {
+		return nil, err
+	}
 
 	return &Serde{
 		text:          src,
 		file:          files[0],
 		maxIndexDepth: messageNestingDepth(files[0].Messages()),
 	}, nil
+}
+
+// resolveWithTimeout resolves the schema's references. It runs before the
+// compile timeout starts: it is network I/O bounded by ctx, the resolver and
+// the resolution timeout (whichever ends first), not compile work.
+func resolveWithTimeout(ctx context.Context, o options, rootSize int) (map[string][]byte, error) {
+	resolveCtx := ctx
+	if len(o.references) > 0 {
+		// WithTimeout keeps the earlier of the caller's deadline and ours.
+		var cancel context.CancelFunc
+		resolveCtx, cancel = context.WithTimeout(ctx, o.resolveTimeout)
+		defer cancel()
+	}
+	imports, err := resolveReferences(resolveCtx, o.references, o.resolve, rootSize, o.maxSchemaSize)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("%w: %w", ErrCanceled, ctxErr)
+		}
+		if resolveCtx.Err() != nil {
+			// Only the resolution timeout ended: the registry is slow or
+			// unreachable. Like any resolver failure, not a property of the
+			// schema, so the caller must not keep it.
+			return nil, fmt.Errorf("%w: resolving references timed out after %s: %w", ErrReferenceResolve, o.resolveTimeout, context.DeadlineExceeded)
+		}
+		return nil, err
+	}
+	return imports, nil
 }
 
 // classifyCompileError maps a protocompile error onto exactly one sentinel.
@@ -174,4 +206,118 @@ func (s *Serde) Unmarshal(b []byte, _ any) error {
 // String returns the .proto source the Serde was compiled from, unchanged.
 func (s *Serde) String() string {
 	return string(s.text)
+}
+
+// checkReservedPackages rejects a schema that, or whose imports, declare
+// anything named google.protobuf or under it outside the built-in files.
+//
+// Serving the built-in files for google/protobuf/* paths is not enough: a
+// reference at another path, say evil.proto, can redefine a well-known type
+// for every schema that imports it, and the root's google.protobuf.Timestamp
+// resolves to it. The package declaration is only one way to get there. The
+// full name google.protobuf.Timestamp is also reached by "package google;
+// message protobuf { message Timestamp {...} }" or, with no package, by
+// "message google { message protobuf {...} }". So for every file that is not
+// built in, every declared name (messages, enums and their values, fields,
+// oneofs, extensions, services and methods) is checked, not just the package.
+func checkReservedPackages(root protoreflect.FileDescriptor) error {
+	seen := map[string]bool{}
+	var walk func(fd protoreflect.FileDescriptor) error
+	walk = func(fd protoreflect.FileDescriptor) error {
+		if seen[fd.Path()] {
+			return nil
+		}
+		seen[fd.Path()] = true
+		if !isBuiltIn(fd.Path()) {
+			if name, ok := reservedName(fd); ok {
+				return fmt.Errorf("%w: %q declares %s", ErrReservedPackage, fd.Path(), name)
+			}
+		}
+		imports := fd.Imports()
+		for i := range imports.Len() {
+			if err := walk(imports.Get(i).FileDescriptor); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return walk(root)
+}
+
+// reservedName returns the first name declared in fd that is google.protobuf
+// or under it, checking the package declaration and every declared name.
+func reservedName(fd protoreflect.FileDescriptor) (string, bool) {
+	if pkg := string(fd.Package()); isReservedName(pkg) {
+		return "package " + pkg, true
+	}
+	for _, d := range declaredDescriptors(fd) {
+		if name := string(d.FullName()); isReservedName(name) {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// declaredDescriptors returns every named declaration in fd: messages, their
+// fields and oneofs, enums and their values, extensions, services and
+// methods, nested ones included.
+func declaredDescriptors(fd protoreflect.FileDescriptor) []protoreflect.Descriptor {
+	var out []protoreflect.Descriptor
+	appendEnums(&out, fd.Enums())
+	appendExtensions(&out, fd.Extensions())
+	appendMessages(&out, fd.Messages())
+	svcs := fd.Services()
+	for i := range svcs.Len() {
+		out = append(out, svcs.Get(i))
+		methods := svcs.Get(i).Methods()
+		for j := range methods.Len() {
+			out = append(out, methods.Get(j))
+		}
+	}
+	return out
+}
+
+func appendMessages(out *[]protoreflect.Descriptor, mds protoreflect.MessageDescriptors) {
+	for i := range mds.Len() {
+		md := mds.Get(i)
+		*out = append(*out, md)
+		for j := range md.Fields().Len() {
+			*out = append(*out, md.Fields().Get(j))
+		}
+		for j := range md.Oneofs().Len() {
+			*out = append(*out, md.Oneofs().Get(j))
+		}
+		appendEnums(out, md.Enums())
+		appendExtensions(out, md.Extensions())
+		appendMessages(out, md.Messages())
+	}
+}
+
+func appendEnums(out *[]protoreflect.Descriptor, eds protoreflect.EnumDescriptors) {
+	for i := range eds.Len() {
+		*out = append(*out, eds.Get(i))
+		values := eds.Get(i).Values()
+		for j := range values.Len() {
+			*out = append(*out, values.Get(j))
+		}
+	}
+}
+
+func appendExtensions(out *[]protoreflect.Descriptor, xds protoreflect.ExtensionDescriptors) {
+	for i := range xds.Len() {
+		*out = append(*out, xds.Get(i))
+	}
+}
+
+// isReservedName reports whether name is google.protobuf or under it. The
+// check is on the dot boundary: google.protobufx is not reserved.
+func isReservedName(name string) bool {
+	return name == "google.protobuf" || strings.HasPrefix(name, "google.protobuf.")
+}
+
+// isBuiltIn reports whether path is one of the google/protobuf/*.proto files
+// that ship with the compiler.
+func isBuiltIn(path string) bool {
+	_, err := standardImports.FindFileByPath(path)
+	return err == nil
 }

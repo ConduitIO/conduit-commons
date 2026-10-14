@@ -53,7 +53,9 @@ type Schema struct {
 	// (for Protobuf, the files it imports). They are resolved through the
 	// Resolver given to SerdeWithResolver, and carried by the
 	// schema.v1.Schema wire type (field 6), so a standalone processor
-	// receives them too.
+	// receives them too. Code that converts a Schema to or from
+	// schema.v1.Schema must use ToProto and FromProto: copying the fields one
+	// by one drops References.
 	References []Reference
 }
 
@@ -70,6 +72,20 @@ type Reference struct {
 
 // Resolver fetches the schemas that other schemas reference, usually from
 // the schema registry.
+//
+// Parsed Serdes are cached process-wide, and results are shared across
+// Resolvers: whatever the first
+// caller's Resolver returned for a subject and version is what every later
+// caller gets. A process must therefore use one Resolver identity, one
+// registry, for all calls. Constructors of Resolvers that are exposed to
+// configuration (the conduit protobuf.decode processor, PB-5) must enforce
+// this, and must check that the schema they return has the requested subject,
+// version and type, and map registry errors to status and error codes without
+// passing the raw response body through.
+//
+// A Resolver must not call SerdeWithResolver for the schema being parsed (or
+// one that leads back to it): that call waits for the parse it is part of,
+// and deadlocks until its context ends.
 type Resolver interface {
 	// ResolveReference returns the schema registered under ref.Subject and
 	// ref.Version, including its own References. It must honor ctx.
@@ -129,6 +145,11 @@ func (s Schema) Serde() (Serde, error) {
 // reference (protobuf.ErrReferenceResolve). Those are not kept, so the
 // next call parses again instead of getting the cached error until the
 // entry expires.
+//
+// Reference resolution is also bounded by protobuf.DefaultResolveTimeout
+// (30s for the whole walk); that and ctx's deadline apply, whichever is
+// earlier. Running out of the resolution timeout is
+// protobuf.ErrReferenceResolve, which is not kept.
 //
 // Concurrent calls for the same schema share one parse, which runs with the
 // first caller's ctx and Resolver. A caller that joined a parse which failed

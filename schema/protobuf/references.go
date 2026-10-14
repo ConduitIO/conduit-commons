@@ -212,6 +212,11 @@ func (w *referenceWalk) fetch(ctx context.Context, ref Reference) (ReferencedSch
 		return ReferencedSchema{}, err
 	}
 	rs, err := w.resolve(ctx, ref)
+	if err == nil && len(rs.References) > MaxReferenceEdges {
+		// Checked before copying the slice below, and before the walk
+		// charges the entries one by one.
+		return ReferencedSchema{}, fmt.Errorf("%w: %s lists %d references, more than %d", ErrReferenceLimit, refString(ref), len(rs.References), MaxReferenceEdges)
+	}
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ReferencedSchema{}, ctxErr // classified as ErrCanceled by Parse

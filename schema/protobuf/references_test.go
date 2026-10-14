@@ -593,3 +593,216 @@ func TestParse_References_VersionMustBePositive(t *testing.T) {
 		is.Equal(reg.totalCalls(), 0)
 	}
 }
+
+// A declared reference named like a bundled google/protobuf file must not
+// replace it: a registered copy could redefine a well-known type (here a
+// Timestamp whose seconds is a string) for every schema that imports it.
+func TestParse_References_BuiltInStandardImportsWin(t *testing.T) {
+	is := is.New(t)
+	fake := Reference{Name: "google/protobuf/timestamp.proto", Subject: "fake-timestamp", Version: 1}
+	reg := newFakeRegistry().add(fake, `syntax = "proto3";
+package google.protobuf;
+message Timestamp { string seconds = 1; string nanos = 2; }
+`)
+
+	srd, err := Parse(t.Context(), []byte(wellKnownImportSchema), WithReferences([]Reference{fake}, reg.resolve))
+	is.NoErr(err)
+
+	ts := srd.file.Messages().ByName("Event").Fields().ByName("created_at").Message()
+	is.Equal(ts.FullName(), protoreflect.FullName("google.protobuf.Timestamp"))
+	is.Equal(ts.Fields().ByName("seconds").Kind(), protoreflect.Int64Kind)
+	is.Equal(ts.Fields().ByName("nanos").Kind(), protoreflect.Int32Kind)
+}
+
+// A google/protobuf name the built-in set doesn't have still resolves
+// through a declared reference.
+func TestParse_References_UnknownGoogleProtobufNameUsesDeclaredReference(t *testing.T) {
+	is := is.New(t)
+	ref := Reference{Name: "google/protobuf/custom.proto", Subject: "custom", Version: 1}
+	reg := newFakeRegistry().add(ref, `syntax = "proto3"; package custom; message C {}`)
+	_, err := Parse(t.Context(), []byte(`syntax = "proto3"; import "google/protobuf/custom.proto"; message M { custom.C c = 1; }`),
+		WithReferences([]Reference{ref}, reg.resolve))
+	is.NoErr(err)
+}
+
+// A resolver that never returns, on a context without a deadline, is cut off
+// by the resolution timeout. The error is ErrReferenceResolve (so the
+// schema cache doesn't keep it) and also matches DeadlineExceeded.
+func TestParse_References_ResolveTimeout(t *testing.T) {
+	is := is.New(t)
+	block := func(ctx context.Context, _ Reference) (ReferencedSchema, error) {
+		<-ctx.Done()
+		return ReferencedSchema{}, ctx.Err()
+	}
+
+	err := parseWithGuard(t.Context(), t, []byte(referenceSchema), WithReferences([]Reference{customerRef}, block), WithResolveTimeout(50*time.Millisecond))
+	is.Equal(matchingSentinels(err), []error{ErrReferenceResolve})
+	is.True(errors.Is(err, context.DeadlineExceeded))
+	is.True(strings.Contains(err.Error(), "timed out after 50ms"))
+}
+
+// The caller's deadline and the resolution timeout both apply, and the
+// earlier one ends the wait. Here the caller's is earlier: ErrCanceled.
+func TestParse_References_ResolveTimeoutYieldsToCallerDeadline(t *testing.T) {
+	is := is.New(t)
+	block := func(ctx context.Context, _ Reference) (ReferencedSchema, error) {
+		<-ctx.Done()
+		return ReferencedSchema{}, ctx.Err()
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+
+	err := parseWithGuard(ctx, t, []byte(referenceSchema), WithReferences([]Reference{customerRef}, block), WithResolveTimeout(time.Hour))
+	is.Equal(matchingSentinels(err), []error{ErrCanceled})
+	is.True(errors.Is(err, context.DeadlineExceeded))
+}
+
+func TestParse_References_ResolveTimeoutMustBePositive(t *testing.T) {
+	is := is.New(t)
+	_, err := Parse(t.Context(), []byte(flatSchema), WithResolveTimeout(0))
+	is.Equal(matchingSentinels(err), []error{ErrInvalidOption})
+}
+
+// A resolver that returns a huge reference list is rejected before the list
+// is copied.
+func TestParse_References_ResolverReturnsTooManyReferences(t *testing.T) {
+	is := is.New(t)
+	huge := make([]Reference, MaxReferenceEdges+1)
+	resolve := func(context.Context, Reference) (ReferencedSchema, error) {
+		return ReferencedSchema{References: huge}, nil
+	}
+	_, err := Parse(t.Context(), []byte(referenceSchema), WithReferences([]Reference{customerRef}, resolve))
+	is.Equal(matchingSentinels(err), []error{ErrReferenceLimit})
+	is.True(strings.Contains(err.Error(), "lists 4097 references"))
+}
+
+// And here the resolution timeout is earlier than a long caller deadline: it
+// is not ignored just because the context has a deadline.
+func TestParse_References_ResolveTimeoutAppliesUnderALongCallerDeadline(t *testing.T) {
+	is := is.New(t)
+	block := func(ctx context.Context, _ Reference) (ReferencedSchema, error) {
+		<-ctx.Done()
+		return ReferencedSchema{}, ctx.Err()
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Hour)
+	defer cancel()
+
+	err := parseWithGuard(ctx, t, []byte(referenceSchema), WithReferences([]Reference{customerRef}, block), WithResolveTimeout(50*time.Millisecond))
+	is.Equal(matchingSentinels(err), []error{ErrReferenceResolve})
+}
+
+// A reference at another path can declare package google.protobuf and so
+// replace a well-known type for the root, even though the built-in files win
+// for their own paths. Rejected, for the package alone and for packages under
+// it, whether the file is a reference, a reference of a reference, or the
+// root.
+func TestParse_References_ReservedPackage(t *testing.T) {
+	evil := Reference{Name: "evil.proto", Subject: "evil", Version: 1}
+	for name, tc := range map[string]struct {
+		root string
+		reg  *fakeRegistry
+		refs []Reference
+	}{
+		"reference redefines Timestamp": {
+			root: `syntax = "proto3"; import "evil.proto"; message M { google.protobuf.Timestamp t = 1; }`,
+			reg: newFakeRegistry().add(evil, `syntax = "proto3";
+package google.protobuf;
+message Timestamp { string seconds = 1; }
+`),
+			refs: []Reference{evil},
+		},
+		"package under google.protobuf": {
+			root: `syntax = "proto3"; import "evil.proto"; message M {}`,
+			reg:  newFakeRegistry().add(evil, `syntax = "proto3"; package google.protobuf.extra; message X {}`),
+			refs: []Reference{evil},
+		},
+		"nested reference": {
+			root: `syntax = "proto3"; import "mid.proto"; message M {}`,
+			reg: newFakeRegistry().
+				add(Reference{Subject: "mid", Version: 1}, `syntax = "proto3"; import "evil.proto";`, evil).
+				add(evil, `syntax = "proto3"; package google.protobuf; message X {}`),
+			refs: []Reference{{Name: "mid.proto", Subject: "mid", Version: 1}},
+		},
+		"root": {
+			root: `syntax = "proto3"; package google.protobuf; message X {}`,
+			reg:  newFakeRegistry(),
+		},
+		// The package is not the only way to name google.protobuf.Timestamp:
+		// a message named protobuf in package google, or messages named
+		// google and protobuf with no package at all, reach the same full name.
+		"nested in package google": {
+			root: `syntax = "proto3"; import "evil.proto"; message M { google.protobuf.Timestamp t = 1; }`,
+			reg: newFakeRegistry().add(evil, `syntax = "proto3";
+package google;
+message protobuf { message Timestamp { string seconds = 1; } }
+`),
+			refs: []Reference{evil},
+		},
+		"nested with no package": {
+			root: `syntax = "proto3"; import "evil.proto"; message M { google.protobuf.Timestamp t = 1; }`,
+			reg: newFakeRegistry().add(evil, `syntax = "proto3";
+message google { message protobuf { message Timestamp { string seconds = 1; } } }
+`),
+			refs: []Reference{evil},
+		},
+		"nested, leading dot": {
+			root: `syntax = "proto3"; import "evil.proto"; message M { .google.protobuf.Timestamp t = 1; }`,
+			reg: newFakeRegistry().add(evil, `syntax = "proto3";
+package google;
+message protobuf { message Timestamp { string seconds = 1; } }
+`),
+			refs: []Reference{evil},
+		},
+		"root itself nested": {
+			root: `syntax = "proto3"; package google; message protobuf { message Timestamp { string seconds = 1; } } message M { protobuf.Timestamp t = 1; }`,
+			reg:  newFakeRegistry(),
+		},
+		"enum named protobuf in package google": {
+			root: `syntax = "proto3"; import "evil.proto"; message M {}`,
+			reg:  newFakeRegistry().add(evil, `syntax = "proto3"; package google; enum protobuf { PROTOBUF_UNSPECIFIED = 0; }`),
+			refs: []Reference{evil},
+		},
+		"service named protobuf in package google": {
+			root: `syntax = "proto3"; import "evil.proto"; message M {}`,
+			reg:  newFakeRegistry().add(evil, `syntax = "proto3"; package google; message R {} service protobuf { rpc Get(R) returns (R); }`),
+			refs: []Reference{evil},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			is := is.New(t)
+			_, err := Parse(t.Context(), []byte(tc.root), WithReferences(tc.refs, tc.reg.resolve))
+			is.Equal(matchingSentinels(err), []error{ErrReservedPackage})
+		})
+	}
+
+	t.Run("built-in files and similar package names are fine", func(t *testing.T) {
+		is := is.New(t)
+		ok := Reference{Name: "ok.proto", Subject: "ok", Version: 1}
+		reg := newFakeRegistry().add(ok, `syntax = "proto3"; package google.protobufx; message X { int64 a = 1; }`)
+		srd, err := Parse(t.Context(), []byte(`syntax = "proto3"; import "ok.proto"; message M { google.protobufx.X x = 1; }`),
+			WithReferences([]Reference{ok}, reg.resolve))
+		is.NoErr(err)
+		// ok.proto really was compiled and linked into the root.
+		is.Equal(srd.file.Messages().ByName("M").Fields().ByName("x").Message().FullName(), protoreflect.FullName("google.protobufx.X"))
+	})
+}
+
+// parseWithGuard runs Parse and fails the test, instead of hanging it, if it
+// has not returned after 5s. The tests using it block the resolver forever, so
+// a regression in the resolution timeout would otherwise hang until the
+// package's test timeout.
+func parseWithGuard(ctx context.Context, t *testing.T, text []byte, opts ...Option) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() {
+		_, err := Parse(ctx, text, opts...)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("Parse did not return within 5s: the resolution timeout is not ending the wait")
+		return nil
+	}
+}

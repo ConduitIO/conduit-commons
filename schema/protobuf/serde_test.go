@@ -31,7 +31,7 @@ import (
 var sentinels = []error{
 	ErrInvalidOption, ErrCanceled, ErrCompileTimeout, ErrSchemaTooLarge,
 	ErrReferenceResolve, ErrReferenceCycle, ErrReferenceLimit, ErrInvalidReference,
-	ErrUnresolvedImport, ErrSchemaCompile,
+	ErrUnresolvedImport, ErrSchemaCompile, ErrReservedPackage,
 }
 
 func matchingSentinels(err error) []error {

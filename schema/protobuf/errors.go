@@ -73,6 +73,13 @@ var (
 	// two different schemas.
 	ErrInvalidReference = errors.New("invalid protobuf schema reference")
 
+	// ErrReservedPackage is returned by Parse when the schema, or a schema it
+	// imports, declares the package google.protobuf (or one under it) in a
+	// file that is not one of the built-in google/protobuf/*.proto files.
+	// Such a file could redefine a well-known type for every schema that
+	// imports it.
+	ErrReservedPackage = errors.New("protobuf schema declares a reserved package")
+
 	// ErrSchemaTooLarge is returned by Parse when the schema source, plus
 	// the source of every schema it references, exceeds the schema size cap.
 	ErrSchemaTooLarge = errors.New("protobuf schema is too large")

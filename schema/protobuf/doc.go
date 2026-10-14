@@ -71,10 +71,21 @@
 // A version must be at least 1; "latest" is not accepted, because the cached
 // Serde would then depend on when it was first parsed.
 //
-// A declared reference shadows the standard imports: if a schema declares a
-// reference named like a bundled file, for example google/protobuf/any.proto,
-// the registered copy is compiled in place of the one that ships with
-// protoc. That is the copy the producer registered.
+// The standard google/protobuf/*.proto files are built in and always win: if
+// a schema declares a reference named like a bundled file, for example
+// google/protobuf/timestamp.proto, the declared text is ignored and the
+// built-in file is used. Otherwise a registered copy could redefine a
+// well-known type for every schema that imports it.
+//
+// A file other than a built-in one that declares the package google.protobuf,
+// or one under it, fails with ErrReservedPackage: it could redefine a
+// well-known type for the schemas that import it, under a path the built-in
+// precedence does not cover.
+//
+// Reference resolution is also bounded by DefaultResolveTimeout (30s for the
+// whole walk); WithResolveTimeout changes it for one call, and the caller's
+// context deadline applies too, whichever is earlier. Running out of the
+// resolution timeout is ErrReferenceResolve.
 //
 // The walk is guarded, because each step is a registry fetch and
 // protocompile's own import-cycle check only sees import paths, not
@@ -107,7 +118,7 @@
 // Every error Parse returns matches exactly one of ErrInvalidOption,
 // ErrCanceled, ErrCompileTimeout, ErrSchemaTooLarge, ErrReferenceResolve,
 // ErrReferenceCycle, ErrReferenceLimit, ErrInvalidReference,
-// ErrUnresolvedImport or ErrSchemaCompile under errors.Is. Every error
+// ErrReservedPackage, ErrUnresolvedImport or ErrSchemaCompile under errors.Is. Every error
 // Serde.Unmarshal returns matches exactly one of
 // ErrMessageIndex or ErrDecodeNotImplemented. These sentinels are the stable
 // identities that callers (the conduit protobuf.decode processor) map to

@@ -55,6 +55,12 @@ func SetDefaultCompileTimeout(d time.Duration) error {
 	return nil
 }
 
+// DefaultResolveTimeout bounds reference resolution: a stuck registry must not
+// hold a record (and every pipeline waiting on the same schema) forever. It
+// covers the whole walk, not each fetch. The caller's context deadline applies
+// as well, and whichever is earlier ends the resolution.
+const DefaultResolveTimeout = 30 * time.Second
+
 // DefaultMaxSchemaSize is the schema size cap used when neither
 // WithMaxSchemaSize nor SetDefaultMaxSchemaSize set one: 1 MiB of .proto
 // source, counting the schema and every schema it references. Real schemas
@@ -91,6 +97,7 @@ type Option func(*options) error
 type options struct {
 	compileTimeout time.Duration // 0 = use defaultCompileTimeout
 	maxSchemaSize  int           // 0 = use defaultMaxSchemaSize
+	resolveTimeout time.Duration // 0 = DefaultResolveTimeout
 
 	references []Reference
 	resolve    ResolveFunc
@@ -111,6 +118,9 @@ func resolveOptions(opts []Option) (options, error) {
 	if o.compileTimeout == 0 {
 		o.compileTimeout = currentDefaultCompileTimeout()
 	}
+	if o.resolveTimeout == 0 {
+		o.resolveTimeout = DefaultResolveTimeout
+	}
 	if o.maxSchemaSize == 0 {
 		o.maxSchemaSize = currentDefaultMaxSchemaSize()
 	}
@@ -125,6 +135,19 @@ func WithCompileTimeout(d time.Duration) Option {
 			return fmt.Errorf("%w: WithCompileTimeout requires d > 0, got %s", ErrInvalidOption, d)
 		}
 		o.compileTimeout = d
+		return nil
+	}
+}
+
+// WithResolveTimeout sets the reference resolution timeout for one Parse call,
+// overriding DefaultResolveTimeout. The caller's context deadline still
+// applies; the earlier of the two ends the resolution. d must be > 0.
+func WithResolveTimeout(d time.Duration) Option {
+	return func(o *options) error {
+		if d <= 0 {
+			return fmt.Errorf("%w: WithResolveTimeout requires d > 0, got %s", ErrInvalidOption, d)
+		}
+		o.resolveTimeout = d
 		return nil
 	}
 }
