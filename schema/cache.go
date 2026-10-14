@@ -30,6 +30,12 @@ import (
 // The cache never returns a nil Serde with a nil error: a load that produces
 // one is reported as errNilSerde and not cached.
 //
+// The cache holds at most maxEntries entries. When a new load would exceed
+// that, the finished entry that expires first is evicted. A load in flight is
+// never evicted; if every entry is one, the new load runs without being
+// cached (and without single-flight) instead of blocking or growing the
+// cache.
+//
 // Results, errors included, are kept for maxAge. A load that fails with a
 // transient error (see isTransientParseError) is not kept at all: the loading
 // caller removes its own entry before waking the callers that joined it, so
@@ -43,8 +49,9 @@ import (
 // hour, so an idle process holds on to them but never grows without bound
 // under load and has no goroutine to leak.
 type serdeCache struct {
-	maxAge time.Duration
-	now    func() time.Time // replaced in tests
+	maxAge     time.Duration
+	maxEntries int
+	now        func() time.Time // replaced in tests
 
 	mu        sync.Mutex
 	entries   map[serdeCacheKey]*serdeEntry
@@ -53,6 +60,20 @@ type serdeCache struct {
 
 // serdeSweepInterval is how often get drops expired entries.
 const serdeSweepInterval = time.Hour
+
+// DefaultSerdeCacheSize is the most Serdes the process-wide cache holds.
+const DefaultSerdeCacheSize = 4096
+
+// SerdeCacheSize returns how many entries (finished and in flight) the
+// process-wide Serde cache holds now, for callers that export it as a metric.
+// It never exceeds DefaultSerdeCacheSize.
+func SerdeCacheSize() int { return globalSerdeCache.size() }
+
+func (c *serdeCache) size() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.entries)
+}
 
 type serdeEntry struct {
 	done chan struct{} // closed once srd and err are set
@@ -63,8 +84,8 @@ type serdeEntry struct {
 	expires time.Time
 }
 
-func newSerdeCache(maxAge time.Duration, now func() time.Time) *serdeCache {
-	return &serdeCache{maxAge: maxAge, now: now, entries: make(map[serdeCacheKey]*serdeEntry)}
+func newSerdeCache(maxAge time.Duration, maxEntries int, now func() time.Time) *serdeCache {
+	return &serdeCache{maxAge: maxAge, maxEntries: maxEntries, now: now, entries: make(map[serdeCacheKey]*serdeEntry)}
 }
 
 // errNilSerde is what a load that returned a nil Serde with a nil error
@@ -105,6 +126,20 @@ func (c *serdeCache) get(ctx context.Context, key serdeCacheKey, load func() (Se
 				return nil, false, ctx.Err()
 			}
 		}
+	}
+	if len(c.entries) >= c.maxEntries && !c.evictOneLocked() {
+		// Every entry is a load in flight, so there is nothing to evict.
+		// Load without caching, rather than block this caller or let the
+		// cache grow past the cap.
+		c.mu.Unlock()
+		srd, err = load()
+		if err == nil && srd == nil {
+			err = errNilSerde
+		}
+		if err != nil {
+			srd = nil
+		}
+		return srd, true, err
 	}
 	e := &serdeEntry{done: make(chan struct{})}
 	c.entries[key] = e
@@ -147,6 +182,30 @@ func (c *serdeCache) finish(key serdeCacheKey, e *serdeEntry, drop bool) {
 	}
 	c.mu.Unlock()
 	close(e.done)
+}
+
+// evictOneLocked removes the finished entry that expires first and reports
+// whether there was one. Entries still loading are skipped: removing one
+// would let a second load of the same key start while the first is running.
+func (c *serdeCache) evictOneLocked() bool {
+	var (
+		oldestKey serdeCacheKey
+		oldest    *serdeEntry
+	)
+	for k, e := range c.entries {
+		select {
+		case <-e.done:
+			if oldest == nil || e.expires.Before(oldest.expires) {
+				oldestKey, oldest = k, e
+			}
+		default: // still loading
+		}
+	}
+	if oldest == nil {
+		return false
+	}
+	delete(c.entries, oldestKey)
+	return true
 }
 
 func (c *serdeCache) sweepLocked(now time.Time) {

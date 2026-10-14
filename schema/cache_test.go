@@ -43,7 +43,7 @@ func (c *fakeClock) advance(d time.Duration) {
 
 func newTestCache() (*serdeCache, *fakeClock) {
 	clk := &fakeClock{t: time.Unix(1_000_000, 0)}
-	return newSerdeCache(4*time.Hour, clk.now), clk
+	return newSerdeCache(4*time.Hour, 1<<20, clk.now), clk
 }
 
 var testKey = serdeCacheKey{typ: Type(7), fingerprint: 1}
@@ -272,5 +272,155 @@ func TestSerdeCache_ConcurrentTransientFailuresNeverYieldNilSerde(t *testing.T) 
 	wg.Wait()
 	if nilnil.Load() != 0 || wrong.Load() != 0 {
 		t.Fatalf("nilnil=%d wrong=%d over %d loads", nilnil.Load(), wrong.Load(), calls.Load())
+	}
+}
+
+func TestSerdeCache_SizeCapEvictsEarliestExpiringFinishedEntry(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_000_000, 0)}
+	c := newSerdeCache(4*time.Hour, 3, clk.now)
+	key := func(i int) serdeCacheKey { return serdeCacheKey{typ: Type(7), fingerprint: uint64(i)} }
+	loads := map[int]int{}
+	get := func(i int) {
+		t.Helper()
+		_, _, err := c.get(t.Context(), key(i), func() (Serde, error) { loads[i]++; return fakeSerde{}, nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for i := range 3 {
+		get(i)
+		clk.advance(time.Minute) // entry 0 expires first, then 1, then 2
+	}
+	get(3) // full: evicts 0
+	if c.size() != 3 {
+		t.Fatalf("size = %d, want 3", c.size())
+	}
+	get(1)
+	get(2)
+	get(3)
+	if loads[1] != 1 || loads[2] != 1 || loads[3] != 1 {
+		t.Fatalf("survivors were reloaded: %v", loads)
+	}
+	get(0)
+	if loads[0] != 2 {
+		t.Fatalf("entry 0 was not evicted: %v", loads)
+	}
+}
+
+// A load in flight is never evicted: removing it would let a second load of
+// the same key start. With every entry in flight, a new key loads without
+// being cached, and the cache does not grow.
+func TestSerdeCache_SizeCapNeverEvictsInFlightLoad(t *testing.T) {
+	clk := &fakeClock{t: time.Unix(1_000_000, 0)}
+	c := newSerdeCache(4*time.Hour, 2, clk.now)
+	key := func(i int) serdeCacheKey { return serdeCacheKey{typ: Type(7), fingerprint: uint64(i)} }
+	release := make(chan struct{})
+	var started, wg sync.WaitGroup
+	var loads atomic.Int64
+	for i := range 2 {
+		started.Add(1)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _, _ = c.get(t.Context(), key(i), func() (Serde, error) {
+				loads.Add(1)
+				started.Done()
+				<-release
+				return fakeSerde{}, nil
+			})
+		}()
+	}
+	started.Wait()
+
+	// Full of in-flight loads: a third key runs, uncached, and does not block.
+	srd, ran, err := c.get(t.Context(), key(2), func() (Serde, error) { loads.Add(1); return fakeSerde{name: "uncached"}, nil })
+	if err != nil || !ran || srd != (fakeSerde{name: "uncached"}) {
+		t.Fatalf("srd=%v ran=%v err=%v", srd, ran, err)
+	}
+	if c.size() != 2 {
+		t.Fatalf("size = %d, want 2", c.size())
+	}
+
+	// An in-flight key is joined, not evicted and not loaded twice.
+	joined := make(chan struct{})
+	go func() {
+		defer close(joined)
+		_, ran, _ := c.get(t.Context(), key(0), func() (Serde, error) { loads.Add(1); return fakeSerde{}, nil })
+		if ran {
+			t.Error("joiner ran its own load")
+		}
+	}()
+	time.Sleep(10 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	<-joined
+	if loads.Load() != 3 {
+		t.Fatalf("loads = %d, want 3 (two in flight, one uncached)", loads.Load())
+	}
+
+	// The uncached key was not kept; with room freed by eviction it loads again and is kept.
+	var again int
+	for range 2 {
+		_, _, _ = c.get(t.Context(), key(2), func() (Serde, error) { again++; return fakeSerde{}, nil })
+	}
+	if again != 1 || c.size() != 2 {
+		t.Fatalf("again=%d size=%d, want 1 and 2", again, c.size())
+	}
+}
+
+// Many goroutines load many distinct schemas, with transient failures and
+// slow loads. The cache never holds more than its cap, never returns a nil
+// Serde with a nil error, and always returns the key's own Serde. Run with
+// -race.
+func TestSerdeCache_CapHoldsUnderConcurrentFlood(t *testing.T) {
+	const maxEntries = 64
+	c := newSerdeCache(4*time.Hour, maxEntries, time.Now)
+	var over, nilnil, wrong atomic.Int64
+	deadline := time.Now().Add(2 * time.Second)
+	var wg sync.WaitGroup
+	for g := range 256 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; time.Now().Before(deadline); i++ {
+				fp := uint64(g)<<32 | uint64(i)
+				srd, _, err := c.get(t.Context(), serdeCacheKey{typ: Type(7), fingerprint: fp}, func() (Serde, error) {
+					time.Sleep(time.Duration(i%3) * 20 * time.Microsecond)
+					if i%5 == 0 {
+						return nil, fmt.Errorf("flaky: %w", context.DeadlineExceeded)
+					}
+					return fakeSerde{name: fmt.Sprint(fp)}, nil
+				})
+				if n := c.size(); n > maxEntries {
+					over.Add(1)
+				}
+				switch {
+				case srd == nil && err == nil:
+					nilnil.Add(1)
+				case err == nil && srd != (fakeSerde{name: fmt.Sprint(fp)}):
+					wrong.Add(1)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if over.Load() != 0 || nilnil.Load() != 0 || wrong.Load() != 0 {
+		t.Fatalf("over=%d nilnil=%d wrong=%d", over.Load(), nilnil.Load(), wrong.Load())
+	}
+	if n := c.size(); n > maxEntries {
+		t.Fatalf("size = %d, cap %d", n, maxEntries)
+	}
+}
+
+func TestSerdeCacheSize_ReportsTheGlobalCache(t *testing.T) {
+	before := SerdeCacheSize()
+	typ, _ := registerFakeType(t, func(int64) (Serde, error) { return fakeSerde{}, nil })
+	_, err := Schema{Type: typ, Bytes: uniqueSchemaBytes(t)}.Serde()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if SerdeCacheSize() < before { // other entries may be evicted or expire, but not drop below a fresh insert's worth
+		t.Fatalf("size went from %d to %d", before, SerdeCacheSize())
 	}
 }
