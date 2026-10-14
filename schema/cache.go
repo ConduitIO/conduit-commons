@@ -67,12 +67,13 @@ type serdeCache struct {
 	finished *list.List // of serdeCacheKey
 }
 
-// DefaultSerdeCacheSize is the most Serdes the process-wide cache holds.
-const DefaultSerdeCacheSize = 4096
+// serdeCacheMaxEntries is the most Serdes the process-wide cache holds. It is
+// not configurable: the cache is process-wide and shared by every pipeline.
+const serdeCacheMaxEntries = 4096
 
 // SerdeCacheSize returns how many entries (finished and in flight) the
 // process-wide Serde cache holds now, for callers that export it as a metric.
-// It never exceeds DefaultSerdeCacheSize.
+// It never exceeds 4096.
 func SerdeCacheSize() int { return globalSerdeCache.size() }
 
 func (c *serdeCache) size() int {

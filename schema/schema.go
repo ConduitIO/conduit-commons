@@ -138,7 +138,7 @@ type serdeCacheKey struct {
 // process uses a global cache to avoid re-parsing the same schema multiple
 // times; entries expire after 4 hours, so schemas no pipeline uses any more
 // are dropped.
-var globalSerdeCache = newSerdeCache(4*time.Hour, DefaultSerdeCacheSize, time.Now)
+var globalSerdeCache = newSerdeCache(4*time.Hour, serdeCacheMaxEntries, time.Now)
 
 // Serde represents a serializer/deserializer.
 type Serde interface {
