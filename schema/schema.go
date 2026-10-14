@@ -48,6 +48,32 @@ type Schema struct {
 	ID      int
 	Type    Type
 	Bytes   []byte
+
+	// References are the other registered schemas this schema refers to
+	// (for Protobuf, the files it imports). They are resolved through the
+	// Resolver given to SerdeWithResolver, and carried by the
+	// schema.v1.Schema wire type (field 6), so a standalone processor
+	// receives them too.
+	References []Reference
+}
+
+// Reference is a schema's reference to another schema registered in the
+// schema registry, as Confluent Schema Registry stores it.
+type Reference struct {
+	// Name is how the referencing schema refers to the other one. For
+	// Protobuf it is the import path.
+	Name string
+	// Subject and Version identify the referenced schema in the registry.
+	Subject string
+	Version int
+}
+
+// Resolver fetches the schemas that other schemas reference, usually from
+// the schema registry.
+type Resolver interface {
+	// ResolveReference returns the schema registered under ref.Subject and
+	// ref.Version, including its own References. It must honor ctx.
+	ResolveReference(ctx context.Context, ref Reference) (Schema, error)
 }
 
 // Marshal returns the encoded representation of v.
@@ -82,62 +108,131 @@ func (s Schema) Fingerprint() uint64 {
 	return rabin.Bytes(s.Bytes)
 }
 
-// Serde returns the serde for the schema. Serdes are cached process-wide by
-// schema type and fingerprint, and so are parse errors, with one exception: a parse
-// that failed because it ran out of time (an error matching
-// context.DeadlineExceeded, such as a timed-out Protobuf compile) is evicted
-// at once. The next call parses again, instead of every pipeline using the
-// schema getting the cached timeout until the entry expires.
+// Serde returns the serde for the schema. It is SerdeWithResolver with
+// context.Background() and no Resolver, so a schema with References fails
+// to parse.
 func (s Schema) Serde() (Serde, error) {
-	key := serdeCacheKey{typ: s.Type, fingerprint: s.Fingerprint()}
+	return s.SerdeWithResolver(context.Background(), nil)
+}
+
+// SerdeWithResolver returns the serde for the schema, resolving its
+// References through r. ctx bounds the parse, if this call is the one that
+// runs it: cancelling ctx stops reference resolution and a Protobuf compile.
+//
+// A schema with References and a nil r fails with ErrResolverRequired,
+// without touching the cache.
+//
+// Serdes are cached process-wide by schema type, fingerprint and references,
+// and so are parse errors, except those that say nothing about the schema: a
+// parse that ran out of time or was cancelled (an error matching
+// context.DeadlineExceeded or context.Canceled), or failed to fetch a
+// reference (protobuf.ErrReferenceResolve). Those are not kept, so the
+// next call parses again instead of getting the cached error until the
+// entry expires.
+//
+// Concurrent calls for the same schema share one parse, which runs with the
+// first caller's ctx and Resolver. A caller that joined a parse which failed
+// for one of the reasons above retries with its own, so another pipeline
+// stopping does not fail this one.
+func (s Schema) SerdeWithResolver(ctx context.Context, r Resolver) (Serde, error) {
+	if len(s.References) > 0 && r == nil {
+		// Checked before the cache, and so never cached: a later call with
+		// a Resolver must get a real parse, not this error. It is not a
+		// transient failure either (nothing to retry without a Resolver).
+		return nil, fmt.Errorf("failed to get serde for schema type %s with %d references: %w", s.Type, len(s.References), ErrResolverRequired)
+	}
+	key := serdeCacheKey{typ: s.Type, fingerprint: s.Fingerprint(), references: referencesKey(s.References)}
 	var err error
-	for range maxNilSerdeRetries + 1 {
-		var srd Serde
-		srd, _, err = globalSerdeCache.get(context.Background(), key, func() (Serde, error) {
-			factory, ok := KnownSerdeFactories[s.Type]
-			if !ok {
-				return nil, fmt.Errorf("failed to get serde for schema type %s: %w", s.Type, ErrUnsupportedType)
-			}
-			srd, err := factory.Parse(s.Bytes)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse schema of type %s: %w", s.Type, err)
-			}
-			return srd, nil
-		})
+	for range maxJoinedParseRetries + 1 {
+		if beforeCacheGet != nil {
+			beforeCacheGet()
+		}
+		var (
+			srd Serde
+			ran bool // whether this call ran the parse
+		)
+		srd, ran, err = globalSerdeCache.get(ctx, key, func() (Serde, error) { return s.parse(ctx, r) })
 		if err == nil {
 			return srd, nil
 		}
-		if !errors.Is(err, errNilSerde) {
+		if !isTransientParseError(err) {
 			return nil, err
 		}
-		// The cache never keeps errNilSerde; load again.
+		// The cache did not keep the error, and callers that joined this
+		// load get it too. If the parse was this call's, or this call's own
+		// context ended, it is final.
+		if ran || ctx.Err() != nil {
+			return nil, err
+		}
+		// Joined someone else's parse, which failed for a reason of its own
+		// (its context, its resolver). Retry with ours.
 	}
 	return nil, err
 }
 
-// maxNilSerdeRetries bounds how often Serde reloads after a load that
-// produced no Serde and no error.
-const maxNilSerdeRetries = 3
+// beforeCacheGet, if set, runs before each cache lookup. Tests use it to
+// order callers around a shared in-flight parse; it is not a supported
+// extension point.
+var beforeCacheGet func()
+
+// maxJoinedParseRetries bounds how often SerdeWithResolver retries after
+// joining another caller's parse that failed transiently.
+const maxJoinedParseRetries = 3
+
+func (s Schema) parse(ctx context.Context, r Resolver) (Serde, error) {
+	factory, ok := KnownSerdeFactories[s.Type]
+	if !ok {
+		return nil, fmt.Errorf("failed to get serde for schema type %s: %w", s.Type, ErrUnsupportedType)
+	}
+	srd, err := factory.Parse(ctx, ParseInput{Bytes: s.Bytes, References: s.References}, r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse schema of type %s: %w", s.Type, err)
+	}
+	return srd, nil
+}
 
 // isTransientParseError reports whether a parse error says nothing about the
 // schema itself, so caching it would fail every later call for no reason.
 func isTransientParseError(err error) bool {
-	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errNilSerde)
+	return errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, protobuf.ErrReferenceResolve) ||
+		errors.Is(err, errNilSerde)
+}
+
+// referencesKey encodes references for serdeCacheKey. Identical schema text
+// with different references compiles to a different schema. Fields are
+// length-prefixed so no two different lists encode the same.
+func referencesKey(refs []Reference) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, ref := range refs {
+		fmt.Fprintf(&b, "%d:%s%d:%s%d;", len(ref.Name), ref.Name, len(ref.Subject), ref.Subject, ref.Version)
+	}
+	return b.String()
 }
 
 // serdeCacheKey identifies a cached Serde. The fingerprint covers only the
 // schema bytes, so the type has to be part of the key: the same bytes
 // registered under two types must parse with each type's own factory, and
-// must not share a Serde or a cached parse error.
+// must not share a Serde or a cached parse error. The same goes for the
+// references, encoded by referencesKey.
+//
+// The Resolver is not part of the key. The cache assumes one schema registry
+// per process: a subject and version name the same schema for every caller,
+// whichever Resolver they pass.
 type serdeCacheKey struct {
 	typ         Type
 	fingerprint uint64
+	references  string
 }
 
-// globalSerdeCache caches Serdes by schema type and fingerprint. Every
-// process uses a global cache to avoid re-parsing the same schema multiple
-// times; entries expire after 4 hours, so schemas no pipeline uses any more
-// are dropped.
+// globalSerdeCache caches Serdes by schema type, fingerprint and references.
+// Every process uses a global cache to avoid re-parsing the same schema
+// multiple times; entries expire after 4 hours and at most 4096 are kept, so
+// schemas no pipeline uses any more are dropped. See serdeCache.
 var globalSerdeCache = newSerdeCache(4*time.Hour, serdeCacheMaxEntries, time.Now)
 
 // Serde represents a serializer/deserializer.
@@ -151,15 +246,28 @@ type Serde interface {
 	String() string
 }
 
+// ParseInput is what SerdeFactory.Parse gets to build a Serde from: exactly
+// the parts of a Schema that identify the cached result (the Type selects
+// the factory). Subject, Version and ID are deliberately absent: the Serde
+// is shared by every schema with the same type, bytes and references, so a
+// Parse that depended on them would give the first caller's answer to the
+// rest.
+type ParseInput struct {
+	Bytes      []byte
+	References []Reference
+}
+
 // SerdeFactory constructs Serdes for one schema Type. Both fields of every
 // entry in KnownSerdeFactories are non-nil: callers index the map and call
 // either function directly, so a nil field would be a nil-func panic rather
 // than an error. A Type that can't support one of the operations returns an
 // error from it instead.
 type SerdeFactory struct {
-	// Parse takes the textual representation of the schema and parses it into
-	// a Schema.
-	Parse func([]byte) (Serde, error)
+	// Parse parses the schema's textual representation (in.Bytes) into a
+	// Serde. It resolves in.References through r, which may be nil when
+	// there are none, and stops when ctx is cancelled. Types that don't
+	// support references ignore r.
+	Parse func(ctx context.Context, in ParseInput, r Resolver) (Serde, error)
 	// SerdeForType returns a Schema that matches the structure of v.
 	SerdeForType func(v any) (Serde, error)
 }
@@ -167,14 +275,19 @@ type SerdeFactory struct {
 // KnownSerdeFactories maps every supported schema Type to its SerdeFactory.
 var KnownSerdeFactories = map[Type]SerdeFactory{
 	TypeAvro: {
-		Parse:        func(s []byte) (Serde, error) { return avro.Parse(s) },
+		Parse:        func(_ context.Context, in ParseInput, _ Resolver) (Serde, error) { return avro.Parse(in.Bytes) },
 		SerdeForType: func(v any) (Serde, error) { return avro.SerdeForType(v) },
 	},
 	TypeProtobuf: {
 		// This path can't pass per-call options, so the compile runs with
-		// the package-level timeout (protobuf.SetDefaultCompileTimeout).
-		Parse: func(s []byte) (Serde, error) {
-			srd, err := protobuf.Parse(s)
+		// the package-level timeout and size cap
+		// (protobuf.SetDefaultCompileTimeout, SetDefaultMaxSchemaSize).
+		Parse: func(ctx context.Context, in ParseInput, r Resolver) (Serde, error) {
+			var opts []protobuf.Option
+			if len(in.References) > 0 {
+				opts = append(opts, protobuf.WithReferences(toProtobufReferences(in.References), protobufResolveFunc(r)))
+			}
+			srd, err := protobuf.Parse(ctx, in.Bytes, opts...)
 			if err != nil {
 				return nil, err //nolint:wrapcheck // Schema.Serde wraps it
 			}
@@ -217,4 +330,27 @@ func (t *Type) UnmarshalText(b []byte) error {
 	}
 
 	return nil
+}
+
+func toProtobufReferences(refs []Reference) []protobuf.Reference {
+	out := make([]protobuf.Reference, len(refs))
+	for i, ref := range refs {
+		out[i] = protobuf.Reference{Name: ref.Name, Subject: ref.Subject, Version: ref.Version}
+	}
+	return out
+}
+
+// protobufResolveFunc adapts r for protobuf.Parse. A nil r gives a nil
+// ResolveFunc, which protobuf.Parse reports as ErrReferenceResolve.
+func protobufResolveFunc(r Resolver) protobuf.ResolveFunc {
+	if r == nil {
+		return nil
+	}
+	return func(ctx context.Context, ref protobuf.Reference) (protobuf.ReferencedSchema, error) {
+		s, err := r.ResolveReference(ctx, Reference{Name: ref.Name, Subject: ref.Subject, Version: ref.Version})
+		if err != nil {
+			return protobuf.ReferencedSchema{}, err //nolint:wrapcheck // protobuf.Parse wraps it with the reference
+		}
+		return protobuf.ReferencedSchema{Text: s.Bytes, References: toProtobufReferences(s.References)}, nil
+	}
 }
