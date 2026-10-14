@@ -108,6 +108,16 @@ func registerFakeTypeAs(t *testing.T, typ Type, parse func(call int64) (Serde, e
 	return typ, &calls
 }
 
+// uniqueSchemaBytes returns schema bytes no other test or run has used. The Serde
+// cache is process-wide, so bytes derived from t.Name() alone are already
+// cached (with the first run's result) on the second run under -count=N.
+func uniqueSchemaBytes(t *testing.T) []byte {
+	t.Helper()
+	return []byte(fmt.Sprintf("%s#%d", t.Name(), uniqueSchemaBytesSeq.Add(1)))
+}
+
+var uniqueSchemaBytesSeq atomic.Int64
+
 type fakeSerde struct{ name string }
 
 func (fakeSerde) Marshal(any) ([]byte, error) { return nil, nil }
@@ -130,7 +140,7 @@ func TestSchema_Serde_SameBytesDifferentTypes(t *testing.T) {
 	typC, callsC := registerFakeTypeAs(t, Type(1003), func(int64) (Serde, error) {
 		return fakeSerde{name: "c"}, nil
 	})
-	b := []byte(t.Name()) // identical bytes for every type
+	b := uniqueSchemaBytes(t) // identical bytes for every type
 
 	srd, err := Schema{Type: typA, Bytes: b}.Serde()
 	is.NoErr(err)
@@ -170,7 +180,7 @@ func TestSchema_Serde_TimeoutIsNotCached(t *testing.T) {
 		}
 		return fakeSerde{name: "ok"}, nil
 	})
-	s := Schema{Type: typ, Bytes: []byte(t.Name())}
+	s := Schema{Type: typ, Bytes: uniqueSchemaBytes(t)}
 
 	_, err := s.Serde()
 	is.True(errors.Is(err, protobuf.ErrCompileTimeout))
@@ -192,7 +202,7 @@ func TestSchema_Serde_ParseErrorIsCached(t *testing.T) {
 
 	wantErr := errors.New("bad schema")
 	typ, calls := registerFakeType(t, func(int64) (Serde, error) { return nil, wantErr })
-	s := Schema{Type: typ, Bytes: []byte(t.Name())}
+	s := Schema{Type: typ, Bytes: uniqueSchemaBytes(t)}
 
 	for range 3 {
 		_, err := s.Serde()
