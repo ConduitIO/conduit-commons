@@ -135,11 +135,18 @@ func (e Endpoint) String() string {
 
 // NewEndpoint validates and normalizes an allowlist entry's host and port. An
 // empty port means 443. The host must be ASCII (list IDN hosts in their
-// punycode form), must not contain a wildcard, and must not carry an IPv6 zone.
+// punycode form), must not contain a wildcard, must not carry an IPv6 zone,
+// must not start with a dot (that reads like a suffix rule, and there is no
+// suffix matching), and must not be an address [IsRefusedAddr] refuses: such
+// an entry could never be dialed, so listing it is a configuration mistake
+// worth failing on.
 func NewEndpoint(host, port string) (Endpoint, error) {
 	h, err := normalizeHost(host)
 	if err != nil {
 		return Endpoint{}, err
+	}
+	if refusedIPHost(h) {
+		return Endpoint{}, fmt.Errorf("host %q is a link-local or metadata address, which is never permitted with ambient credentials", host)
 	}
 	if port == "" {
 		port = defaultHTTPSPort
@@ -160,7 +167,9 @@ func normalizeHost(host string) (string, error) {
 	switch {
 	case h == "":
 		return "", fmt.Errorf("empty host")
-	case strings.ContainsAny(h, "*%/@ \t"):
+	case strings.HasPrefix(h, "."):
+		return "", fmt.Errorf("host %q starts with a dot; entries are exact hosts, not suffixes", host)
+	case strings.ContainsAny(h, "*%/@?#\\ \t"):
 		return "", fmt.Errorf("host %q contains a character that is not allowed", host)
 	}
 	for _, r := range h {
@@ -200,6 +209,12 @@ func (p Policy) CheckEndpoint(u *url.URL) error {
 	host, err := normalizeHost(u.Hostname())
 	if err != nil {
 		return NewError(CodeEndpointNotAllowed, "endpoint host is not valid: "+err.Error())
+	}
+	if refusedIPHost(host) {
+		// Refused whatever the allowlist says; DialControl would refuse the
+		// connection anyway, this fails earlier and with the precise reason.
+		return NewError(CodeEndpointLinkLocal,
+			fmt.Sprintf("endpoint %q is a link-local or metadata address, which is never permitted with ambient credentials", host))
 	}
 	port := u.Port()
 	if port == "" {
@@ -306,4 +321,11 @@ func (p Policy) CheckProxy(env func(string) string) error {
 				strings.Join(set, ", ")))
 	}
 	return nil
+}
+
+// refusedIPHost reports whether a normalized host is an IP literal that
+// IsRefusedAddr refuses.
+func refusedIPHost(host string) bool {
+	addr, err := netip.ParseAddr(host)
+	return err == nil && IsRefusedAddr(addr)
 }

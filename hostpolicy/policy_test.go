@@ -113,6 +113,17 @@ func TestNewEndpoint(t *testing.T) {
 		{host: "host", port: "65536", wantErr: true},
 		{host: "host", port: "0443", wantErr: true},
 		{host: "host", port: "https", wantErr: true},
+		// Never-dialable entries are refused at parse time.
+		{host: "169.254.169.254", wantErr: true},
+		{host: "[fd00:ec2::254]", wantErr: true},
+		{host: "fd00:ec2::23", wantErr: true},
+		{host: "::ffff:169.254.169.254", wantErr: true},
+		{host: "fe80::1", wantErr: true},
+		{host: "64:ff9b::a9fe:a9fe", wantErr: true},
+		// A leading dot reads like a suffix rule; there is none.
+		{host: ".amazonaws.com", wantErr: true},
+		{host: "host?x", wantErr: true},
+		{host: "host#x", wantErr: true},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.host+":"+tc.port, func(t *testing.T) {
@@ -170,7 +181,11 @@ func TestCheckEndpoint(t *testing.T) {
 		{"https://minio.internal:9001", CodeEndpointNotAllowed}, // wrong port
 		{"https://user:pw@minio.internal:9000", CodeEndpointNotAllowed},
 		{"https://bücher.example", CodeEndpointNotAllowed}, // IDN must be listed as punycode
-		{"https://169.254.169.254", CodeEndpointNotAllowed},
+		{"https://169.254.169.254", CodeEndpointLinkLocal},
+		{"https://[fd00:ec2::254]", CodeEndpointLinkLocal},
+		{"https://[::ffff:169.254.169.254]", CodeEndpointLinkLocal},
+		{"https://[fe80::1]", CodeEndpointLinkLocal},
+		{"https://[64:ff9b::a9fe:a9fe]", CodeEndpointLinkLocal},
 		{"https://minio.internal%2eevil:9000", CodeEndpointNotAllowed},
 	}
 	for _, tc := range testCases {
@@ -195,6 +210,11 @@ func TestCheckEndpoint(t *testing.T) {
 		u, _ := url.Parse("https://s3.us-east-1.amazonaws.com")
 		assertCode(t, Policy{AmbientCredentials: true}.CheckEndpoint(u), CodeEndpointNotAllowed)
 	})
+	t.Run("a raw metadata entry is still refused", func(t *testing.T) {
+		raw := Policy{AmbientCredentials: true, AllowEndpoints: []Endpoint{{Host: "169.254.169.254", Port: "443"}}}
+		u, _ := url.Parse("https://169.254.169.254")
+		assertCode(t, raw.CheckEndpoint(u), CodeEndpointLinkLocal)
+	})
 	t.Run("unnormalized entry matches exactly, never loosely", func(t *testing.T) {
 		raw := Policy{AmbientCredentials: true, AllowEndpoints: []Endpoint{{Host: "MinIO.Internal.", Port: "9000"}}}
 		u, _ := url.Parse("https://minio.internal:9000")
@@ -212,6 +232,10 @@ func TestCheckResource(t *testing.T) {
 	}{
 		{"acme-ingest-prod", ""},
 		{"acme-ingest-staging", CodeResourceNotAllowed},
+		// Exact match only: extensions of a listed name are someone else's bucket.
+		{"acme-ingest-prod-evil", CodeResourceNotAllowed},
+		{"acme-ingest-pro", CodeResourceNotAllowed},
+		{"xacme-ingest-prod", CodeResourceNotAllowed},
 		{"ACME-INGEST-PROD", CodeResourceNotAllowed},
 		{"acme-ingest-*", CodeResourceNotAllowed},
 		{"", CodeResourceNotAllowed},
@@ -233,7 +257,9 @@ func TestCheckResource(t *testing.T) {
 }
 
 func TestCheckProxy(t *testing.T) {
-	for _, k := range ProxyEnvVars {
+	// Spelled out rather than ranged over ProxyEnvVars, so dropping a name
+	// from that list fails this test.
+	for _, k := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
 		t.Run(k, func(t *testing.T) {
 			is := is.New(t)
 			env := func(name string) string {

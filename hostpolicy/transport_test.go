@@ -54,7 +54,8 @@ func TestRedirectGuard_Table(t *testing.T) {
 		{"https://evil.example/key", CodeRedirectRefused},
 		{"https://sub.bucket.s3.us-east-1.amazonaws.com/key", CodeRedirectRefused}, // Go keeps Authorization here
 		{"https://bucket.s3.eu-west-1.amazonaws.com/key", CodeRedirectRefused},
-		{"http://bucket.s3.us-east-1.amazonaws.com/key", CodeRedirectRefused}, // scheme downgrade
+		{"http://bucket.s3.us-east-1.amazonaws.com/key", CodeRedirectRefused},     // scheme downgrade
+		{"http://bucket.s3.us-east-1.amazonaws.com:443/key", CodeRedirectRefused}, // same host and port, http
 		{"https://bucket.s3.us-east-1.amazonaws.com:8443/key", CodeRedirectRefused},
 		{"https://user:pw@bucket.s3.us-east-1.amazonaws.com/key", CodeRedirectRefused},
 		{"https://169.254.169.254/latest/meta-data", CodeRedirectRefused},
@@ -163,6 +164,9 @@ func TestIsRefusedAddr(t *testing.T) {
 		{"fd00:ec2::254", true},
 		{"fd00:ec2::23", true},
 		{"::ffff:169.254.169.254", true},
+		{"64:ff9b::a9fe:a9fe", true}, // NAT64 form of 169.254.169.254
+		{"64:ff9b::a00:1", false},    // NAT64 form of 10.0.0.1
+		{"100.100.100.200", false},   // Alibaba metadata: out of scope, documented
 		{"fe80::1", true},
 		{"fe80::1%en0", true},
 		{"10.0.0.1", false},
@@ -243,5 +247,61 @@ func TestDialControl_RealDialer(t *testing.T) {
 	}
 
 	_, err = d.DialContext(context.Background(), "tcp", "169.254.169.254:80")
+	assertCode(t, err, CodeEndpointLinkLocal)
+}
+
+// fakeDNS answers every A query with ip, the shape of a rebinding attack: an
+// allowlisted name that resolves to the metadata address.
+func fakeDNS(t *testing.T, ip [4]byte) string {
+	t.Helper()
+	pc, err := (&net.ListenConfig{}).ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	go func() {
+		buf := make([]byte, 512)
+		for {
+			n, addr, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			if n < 12 {
+				continue
+			}
+			// Question section only: the name (labels up to the zero byte),
+			// then type and class. Go appends an EDNS0 OPT record after it,
+			// which this reply drops.
+			end := 12
+			for end < n && buf[end] != 0 {
+				end += int(buf[end]) + 1
+			}
+			end += 5
+			if end > n {
+				continue
+			}
+			q := buf[12:end]
+			resp := make([]byte, 0, 12+len(q)+16)
+			resp = append(resp, buf[0], buf[1], 0x81, 0x80, 0, 1, 0, 1, 0, 0, 0, 0)
+			resp = append(resp, q...)
+			resp = append(resp, 0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, ip[0], ip[1], ip[2], ip[3])
+			_, _ = pc.WriteTo(resp, addr)
+		}
+	}()
+	return pc.LocalAddr().String()
+}
+
+// TestDialControl_DNSRebinding: a host name that resolves to the metadata
+// address is refused at dial time, because the check runs on the resolved IP.
+func TestDialControl_DNSRebinding(t *testing.T) {
+	dnsAddr := fakeDNS(t, [4]byte{169, 254, 169, 254})
+	d := net.Dialer{
+		Timeout: 5 * time.Second,
+		Control: DialControl(),
+		Resolver: &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "udp4", dnsAddr)
+		}},
+	}
+	_, err := d.DialContext(context.Background(), "tcp4", "minio.rebind.example.com:443")
 	assertCode(t, err, CodeEndpointLinkLocal)
 }
