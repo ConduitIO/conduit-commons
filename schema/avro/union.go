@@ -42,10 +42,10 @@ type unionResolver struct {
 	arrayUnionPaths []path
 	// nullUnionPaths are all the paths to nullable fields within a schema.
 	nullUnionPaths []path
-	// hasUnion is set if the schema has a union anywhere. BeforeMarshal
-	// checks every union value, not only those AfterUnmarshal unwraps.
-	hasUnion bool
-	resolver *avro.TypeResolver
+	// wrapsUnions is set if the schema has a union BeforeMarshal has to look
+	// at: any union other than ["null", primitive] (see isTrivialUnion).
+	wrapsUnions bool
+	resolver    *avro.TypeResolver
 	// schema is the schema the resolver was built for. AfterUnmarshal and
 	// BeforeMarshal walk it alongside the value.
 	schema avro.Schema
@@ -53,18 +53,18 @@ type unionResolver struct {
 
 // newUnionResolver takes a schema and extracts the paths to all maps and arrays
 // with union types and to all nullable unions. AfterUnmarshal uses them, and
-// BeforeMarshal uses hasUnion, only to skip schemas in which there is nothing
-// to do.
+// BeforeMarshal uses wrapsUnions, only to skip schemas in which there is
+// nothing to do.
 func newUnionResolver(schema avro.Schema) (unionResolver, error) {
 	var mapUnionPaths []path
 	var arrayUnionPaths []path
 	var nullUnionPaths []path
-	hasUnion := false
+	wrapsUnions := false
 	// traverse the schema and extract paths to all maps and arrays with a union
 	// as the value type
 	err := traverseSchema(schema, func(p path) {
-		if p[len(p)-1].schema.Type() == avro.Union {
-			hasUnion = true
+		if us, ok := p[len(p)-1].schema.(*avro.UnionSchema); ok && !isTrivialUnion(us) {
+			wrapsUnions = true
 		}
 		switch {
 		case isMapUnion(p[len(p)-1].schema):
@@ -91,7 +91,7 @@ func newUnionResolver(schema avro.Schema) (unionResolver, error) {
 		mapUnionPaths:   mapUnionPaths,
 		arrayUnionPaths: arrayUnionPaths,
 		nullUnionPaths:  nullUnionPaths,
-		hasUnion:        hasUnion,
+		wrapsUnions:     wrapsUnions,
 		resolver:        avro.NewTypeResolver(),
 		schema:          schema,
 	}, nil
@@ -151,6 +151,7 @@ func isNullUnion(schema avro.Schema) bool {
 	return false
 }
 
+// substitution replaces one value in a map or slice.
 type substitution interface {
 	substitute()
 }
@@ -170,3 +171,21 @@ type arraySubstitution struct {
 }
 
 func (s arraySubstitution) substitute() { s.a[s.index] = s.val }
+
+// isTrivialUnion reports whether us is ["null", P] with P a primitive,
+// possibly with a logical type. Its only non-null branch is a type the
+// codec resolves a bare value to by itself, and nothing below it can be a
+// union, so neither BeforeMarshal nor AfterUnmarshal has anything to do.
+func isTrivialUnion(us *avro.UnionSchema) bool {
+	if !isNullUnion(us) {
+		return false
+	}
+	for _, t := range us.Types() {
+		switch t.(type) {
+		case *avro.NullSchema, *avro.PrimitiveSchema:
+		default:
+			return false
+		}
+	}
+	return true
+}
