@@ -15,12 +15,14 @@
 package avro
 
 import (
+	"errors"
 	"math/big"
 	"math/rand/v2"
 	"testing"
 
 	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/google/go-cmp/cmp"
+	"github.com/iskorotkov/avro/v2"
 )
 
 // TestSerde_DecodedNullableNamedValuesEncodeAgain is the regression test for
@@ -147,5 +149,81 @@ func checkRoundTrip(t *testing.T, layout, def, val uint64, bare bool) {
 	}
 	if diff := cmp.Diff(v1, v2, ratComparer); diff != "" {
 		t.Fatalf("seeds (%d,%d,%d,%v): round trip changed the value (-first +second):\n%s\n%s", layout, def, val, bare, diff, gen.json())
+	}
+}
+
+// TestSerde_NullableRecordWithFieldNamedLikeIt covers a record R with a
+// field that is also named R (review of #320). Its bare value {"R": {...}}
+// has the shape of the named form, and was misread as one, which dropped the
+// field's contents ({f:{R:{a:b}}} encoded as {f:{R:nil}}).
+func TestSerde_NullableRecordWithFieldNamedLikeIt(t *testing.T) {
+	testCases := []struct {
+		name  string
+		field string // the type of R's field R
+		value any    // a bare value of R
+	}{
+		{"field is a map", `{"type":"map","values":"string"}`, map[string]any{"R": map[string]any{"a": "b"}}},
+		{"field is a map, with a default", `{"type":"map","values":"string"},"default":{}`, map[string]any{"R": map[string]any{"a": "b"}}},
+		{"field is a record", `{"type":"record","name":"S","fields":[{"name":"a","type":"string"}]}`, map[string]any{"R": map[string]any{"a": "x"}}},
+		{"field is a record, with a default", `{"type":"record","name":"S","fields":[{"name":"a","type":"string"}]},"default":{"a":"d"}`, map[string]any{"R": map[string]any{"a": "x"}}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sch := `{"type":"record","name":"T","fields":[{"name":"f","type":["null",{"type":"record","name":"R","fields":[{"name":"R","type":` + tc.field + `}]}]}]}`
+			s, err := Parse([]byte(sch))
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := s.Marshal(opencdc.StructuredData{"f": tc.value})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got opencdc.StructuredData
+			if err := s.Unmarshal(b, &got); err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(tc.value, got["f"]); diff != "" {
+				t.Fatalf("(-want +got):\n%s", diff)
+			}
+			// The named form of the same value still works.
+			b2, err := s.Marshal(opencdc.StructuredData{"f": map[string]any{"R": tc.value}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(b) != string(b2) {
+				t.Fatalf("named form encodes as %x, bare as %x", b2, b)
+			}
+		})
+	}
+}
+
+// TestSerde_NullableAmbiguousValue_IsAnError checks that a value that reads
+// both as the named form and as a bare value is rejected instead of being
+// guessed. R's only field R is nullable with a default, so {"R": {}} is both
+// a bare R whose field R is an empty map and the named form of an R whose
+// field R takes its default.
+func TestSerde_NullableAmbiguousValue_IsAnError(t *testing.T) {
+	s, err := Parse([]byte(`{"type":"record","name":"T","fields":[{"name":"f","type":["null",{"type":"record","name":"R","fields":[{"name":"R","type":["null",{"type":"map","values":"string"}],"default":null}]}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Marshal(opencdc.StructuredData{"f": map[string]any{"R": map[string]any{}}})
+	if !errors.Is(err, ErrSchemaValueMismatch) {
+		t.Fatalf("want ErrSchemaValueMismatch, got %v", err)
+	}
+}
+
+// TestSerde_Marshal_CodecPanicIsAnError checks that a codec panic becomes an
+// error instead of taking down the process (review of #320). The codec
+// panics encoding {"N": {"N": nil}} with the recursive N{N: ["null","N"]}.
+// The Serde is built by hand because Parse of a recursive schema needs #315.
+func TestSerde_Marshal_CodecPanicIsAnError(t *testing.T) {
+	s := &Serde{
+		schema:    avro.MustParse(`{"type":"record","name":"N","fields":[{"name":"N","type":["null","N"]}]}`),
+		encodeAPI: newEncodeAPI(),
+	}
+	_, err := s.Marshal(map[string]any{"N": map[string]any{"N": nil}})
+	if !errors.Is(err, ErrCodecPanic) {
+		t.Fatalf("want ErrCodecPanic, got %v", err)
 	}
 }

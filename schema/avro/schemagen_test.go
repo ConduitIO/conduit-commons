@@ -269,6 +269,12 @@ func genNamedDef(r *rand.Rand, name string) *genType {
 		for _, n := range names[:1+r.IntN(4)] {
 			t.fields = append(t.fields, genField{name: n, typ: genPrimitive(r)})
 		}
+		// Sometimes give the record a field named like the record itself,
+		// holding a map. Its bare value then has the shape of the named
+		// form ({"n0": {...}}), which BeforeMarshal must not misread.
+		if r.IntN(3) == 0 {
+			t.fields = append(t.fields, genField{name: name, typ: &genType{kind: gMap, elem: genPrimitive(r)}})
+		}
 		return t
 	}
 }

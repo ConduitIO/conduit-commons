@@ -474,12 +474,10 @@ func (r unionResolver) beforeMarshalArraySubstitutions(val any, substitutions []
 // (ConduitIO/conduit-commons#306).
 //
 // Values already in the named form are left alone, so callers that build
-// that form themselves keep working. A value counts as named when it is a
-// map with exactly one key, the key is the branch name, and the branch is
-// not a map or record that could itself hold that shape. For a record or
-// map branch the shapes overlap in one case: a single entry whose key is
-// the branch name and whose value is a map. That is read as the named form,
-// which is what Marshal did before this function existed.
+// that form themselves keep working. For an enum or fixed branch a map is
+// always the named form. For a record or map branch, see classify: a value
+// that fits only one reading gets that reading, and a value that fits both
+// is an error, because picking either could silently write the wrong data.
 func (r unionResolver) beforeMarshalNullUnionSubstitutions(val any, substitutions []substitution) ([]substitution, error) {
 	for _, u := range r.wrappedNullUnions {
 		var parents []map[string]any
@@ -502,14 +500,22 @@ func (r unionResolver) beforeMarshalNullUnionSubstitutions(val any, substitution
 		field := u.parent[len(u.parent)-1].field
 		for _, parent := range parents {
 			if field != nil {
-				if sub := u.wrap(parent, field.Name()); sub != nil {
+				sub, err := u.wrap(parent, field.Name())
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", field.Name(), err)
+				}
+				if sub != nil {
 					substitutions = append(substitutions, sub)
 				}
 				continue
 			}
 			// The union is the value type of a map: wrap every value.
 			for key := range parent {
-				if sub := u.wrap(parent, key); sub != nil {
+				sub, err := u.wrap(parent, key)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", key, err)
+				}
+				if sub != nil {
 					substitutions = append(substitutions, sub)
 				}
 			}
@@ -520,46 +526,168 @@ func (r unionResolver) beforeMarshalNullUnionSubstitutions(val any, substitution
 
 // wrap returns the substitution that puts parent[key] into the named form,
 // or nil if it is nil or already in that form.
-func (u wrappedNullUnion) wrap(parent map[string]any, key string) substitution {
+func (u wrappedNullUnion) wrap(parent map[string]any, key string) (substitution, error) {
 	v, ok := parent[key]
 	if !ok || v == nil {
-		return nil
+		return nil, nil //nolint:nilnil // no substitution needed
 	}
-	if u.isNamedForm(v) {
-		return nil
+	named, err := u.classify(v)
+	if err != nil || named {
+		return nil, err
 	}
-	return mapSubstitution{m: parent, key: key, val: map[string]any{u.name: v}}
+	return mapSubstitution{m: parent, key: key, val: map[string]any{u.name: v}}, nil
 }
 
-func (u wrappedNullUnion) isNamedForm(v any) bool {
-	var m map[string]any
-	switch v := v.(type) {
-	case map[string]any:
-		m = v
-	case opencdc.StructuredData:
-		m = v
-	default:
-		return false
-	}
-	if len(m) != 1 {
-		return false
-	}
-	inner, ok := m[u.name]
+// classify reports whether v is already in the named form ({name: value})
+// rather than a bare value of the branch.
+//
+// For an enum or fixed branch a bare value is never a map, so any map is the
+// named form. For a record or map branch both readings are maps, and v is
+// read as:
+//   - named, if it has one entry, keyed by the branch name, whose value
+//     fits the branch (for a record: a map whose keys are all fields);
+//   - bare, if it fits the branch itself (for a record: all keys are fields
+//     and each field's value fits its type; for a map: every value fits the
+//     map's value type);
+//   - an error if it fits both, for example a record R with a single field
+//     also named R that holds a record or map. Guessing either reading could
+//     write the wrong data (invariant 6).
+//
+// A value that fits neither is left bare, and the codec reports the
+// mismatch.
+func (u wrappedNullUnion) classify(v any) (bool, error) {
+	m, ok := asMap(v)
 	if !ok {
-		return false
+		return false, nil
 	}
 	switch u.branch.(type) {
 	case *avro.RecordSchema, *avro.MapSchema:
-		// The named form holds the record or map itself.
-		switch inner.(type) {
-		case map[string]any, opencdc.StructuredData:
+	default:
+		return true, nil
+	}
+	named := false
+	if len(m) == 1 {
+		if inner, ok := m[u.name]; ok {
+			named = fitsSchema(u.branch, inner)
+		}
+	}
+	bare := fitsSchema(u.branch, v)
+	if named && bare {
+		return false, fmt.Errorf(
+			"value %v of union branch %s is ambiguous: it reads both as the codec's named form {%q: value} "+
+				"and as a bare value, and the schema cannot tell them apart: %w", v, u.name, u.name, ErrSchemaValueMismatch,
+		)
+	}
+	return named, nil
+}
+
+// fitsSchema reports whether v has the shape of a value of s, in the form
+// Marshal accepts. It is only used to tell the named form of a union value
+// from a bare one, so it checks structure, not every primitive type: a
+// record must have exactly its fields (every field without a default, and
+// no others), a map's values and an array's items must fit, and anything
+// that is not a record, map, array or union must not be a map or a list.
+func fitsSchema(s avro.Schema, v any) bool {
+	if ref, ok := s.(*avro.RefSchema); ok {
+		s = ref.Schema()
+	}
+	switch s := s.(type) {
+	case *avro.RecordSchema:
+		return fitsRecord(s, v)
+	case *avro.MapSchema:
+		m, ok := asMap(v)
+		if !ok {
+			return false
+		}
+		for _, mv := range m {
+			if !fitsSchema(s.Values(), mv) {
+				return false
+			}
+		}
+		return true
+	case *avro.ArraySchema:
+		a, ok := v.([]any)
+		if !ok {
+			_, isMap := asMap(v)
+			return !isMap // a typed slice
+		}
+		for _, item := range a {
+			if !fitsSchema(s.Items(), item) {
+				return false
+			}
+		}
+		return true
+	case *avro.UnionSchema:
+		return fitsUnion(s, v)
+	case *avro.NullSchema:
+		return v == nil
+	}
+	_, isMap := asMap(v)
+	_, isList := v.([]any)
+	return !isMap && !isList
+}
+
+func fitsRecord(s *avro.RecordSchema, v any) bool {
+	m, ok := asMap(v)
+	if !ok {
+		return false
+	}
+	for k := range m {
+		if recordField(s, k) == nil {
+			return false
+		}
+	}
+	for _, f := range s.Fields() {
+		fv, ok := m[f.Name()]
+		if !ok {
+			if !f.HasDefault() {
+				return false
+			}
+			continue
+		}
+		if !fitsSchema(f.Type(), fv) {
+			return false
+		}
+	}
+	return true
+}
+
+func fitsUnion(s *avro.UnionSchema, v any) bool {
+	for _, t := range s.Types() {
+		if fitsSchema(t, v) {
 			return true
 		}
-		return false
-	default:
-		// An enum or fixed value is never a map, so a map is the named form.
-		return true
 	}
+	// The named form of one of the branches.
+	m, ok := asMap(v)
+	if !ok || len(m) != 1 {
+		return false
+	}
+	for name, inner := range m {
+		if t, i := s.Types().Get(name); i >= 0 {
+			return fitsSchema(t, inner)
+		}
+	}
+	return false
+}
+
+func recordField(s *avro.RecordSchema, name string) *avro.Field {
+	for _, f := range s.Fields() {
+		if f.Name() == name {
+			return f
+		}
+	}
+	return nil
+}
+
+func asMap(v any) (map[string]any, bool) {
+	switch v := v.(type) {
+	case map[string]any:
+		return v, true
+	case opencdc.StructuredData:
+		return v, true
+	}
+	return nil, false
 }
 
 func (r unionResolver) resolveNameForType(v any, us *avro.UnionSchema) (string, error) {

@@ -45,4 +45,8 @@ var (
 	// allocation ceilings"). This is a construction-time error, never
 	// returned by Marshal/Unmarshal.
 	ErrInvalidOption = errors.New("invalid avro serde option")
+
+	// ErrCodecPanic is returned by Serde.Marshal when the codec panicked on
+	// the value. The value does not fit the schema.
+	ErrCodecPanic = errors.New("avro codec panicked")
 )
