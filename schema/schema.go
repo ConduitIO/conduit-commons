@@ -18,6 +18,8 @@ package schema
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"strconv"
@@ -78,20 +80,52 @@ func (s Schema) Unmarshal(b []byte, v any) error {
 	return nil
 }
 
-// Fingerprint returns a unique 64 bit identifier for the schema.
+// Fingerprint returns the 64 bit Avro Rabin fingerprint of the schema bytes.
+// It is a CRC, not a cryptographic hash: different schemas can share a
+// fingerprint, and a party who controls schema text can construct such a pair
+// on purpose. Do not use it as the identity of a schema where a collision would
+// mix up two schemas, for example as a cache key.
 func (s Schema) Fingerprint() uint64 {
 	return rabin.Bytes(s.Bytes)
 }
 
+// serdeCacheKey identifies a schema in globalSerdeCache.
+type serdeCacheKey [sha256.Size]byte
+
+// serdeCacheKey returns the key under which the schema's Serde is cached: a
+// SHA-256 digest over everything the Serde depends on, the schema Type and
+// the schema Bytes.
+//
+// It is deliberately not Fingerprint(). That is a 64-bit Rabin CRC, which is
+// linear, so anyone who can register schema text can construct a different
+// schema with the same fingerprint. Keyed on it, the process-wide cache would
+// hand one schema's Serde to the other and records would decode against the
+// wrong schema without an error (Invariant 6). A cryptographic hash makes the
+// key unforgeable. Subject, Version and ID are left out on purpose: the Serde
+// does not depend on them, and they should not split the cache.
+//
+// Type is a fixed-width prefix, so the (Type, Bytes) pair has exactly one
+// encoding. Any field added later must be length-prefixed.
+func (s Schema) serdeCacheKey() serdeCacheKey {
+	h := sha256.New()
+	var typ [4]byte
+	binary.BigEndian.PutUint32(typ[:], uint32(s.Type)) //nolint:gosec // Type is an int32 wire value, the cast keeps the bits
+	h.Write(typ[:])
+	h.Write(s.Bytes)
+	var k serdeCacheKey
+	h.Sum(k[:0])
+	return k
+}
+
 // Serde returns the serde for the schema. Serdes are cached process-wide by
-// schema fingerprint, and so are parse errors, with one exception: a parse
+// schema type and content (see serdeCacheKey), and so are parse errors, with one exception: a parse
 // that failed because it ran out of time (an error matching
 // context.DeadlineExceeded, such as a timed-out Protobuf compile) is evicted
 // at once. The next call parses again, instead of every pipeline using the
 // schema getting the cached timeout until the entry expires.
 func (s Schema) Serde() (Serde, error) {
-	fp := s.Fingerprint()
-	srd, err, _ := globalSerdeCache.Get(fp, func() (Serde, error) {
+	key := s.serdeCacheKey()
+	srd, err, _ := globalSerdeCache.Get(key, func() (Serde, error) {
 		factory, ok := KnownSerdeFactories[s.Type]
 		if !ok {
 			return nil, fmt.Errorf("failed to get serde for schema type %s: %w", s.Type, ErrUnsupportedType)
@@ -108,19 +142,20 @@ func (s Schema) Serde() (Serde, error) {
 			// cached the way a deterministic parse error is. Callers that
 			// joined this same load still get the timeout; the next call
 			// after the eviction starts a fresh parse.
-			_, _, _ = globalSerdeCache.Delete(fp) // only the eviction matters, not the evicted value
+			_, _, _ = globalSerdeCache.Delete(key) // only the eviction matters, not the evicted value
 		}
 		return nil, err //nolint:wrapcheck // errors are already wrapped in the miss function
 	}
 	return srd, nil
 }
 
-// globalSerdeCache is a concurrency safe cache of serdes by schema fingerprint.
+// globalSerdeCache is a concurrency safe cache of serdes by schema type and
+// content (see serdeCacheKey).
 // Every process uses a global cache to avoid re-parsing the same schema multiple
 // times. Since the cache is global, it is important to ensure that the cache is
 // cleaned up periodically to avoid memory leaks (e.g. if a pipeline is stopped
 // and the schemas it processed are no longer needed).
-var globalSerdeCache = cache.New[uint64, Serde](
+var globalSerdeCache = cache.New[serdeCacheKey, Serde](
 	cache.AutoCleanInterval(time.Hour), // clean up every hour
 	cache.MaxAge(4*time.Hour),          // expire entries after 4 hours
 )
