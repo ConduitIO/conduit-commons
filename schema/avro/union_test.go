@@ -165,7 +165,8 @@ func TestUnionResolver(t *testing.T) {
 
 			serde, err := SerdeForType(have)
 			is.NoErr(err)
-			mur := newUnionResolver(serde.schema)
+			mur, err := newUnionResolver(serde.schema)
+			is.NoErr(err)
 
 			// before marshal we should change the nested map
 			err = mur.BeforeMarshal(have)

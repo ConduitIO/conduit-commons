@@ -15,6 +15,9 @@
 package avro
 
 import (
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +47,20 @@ var recursiveSchemas = []struct {
 	schema: `{"type":"record","name":"T","fields":[{"name":"kids","type":{"type":"array","items":"T"}},{"name":"named","type":{"type":"map","values":"T"}}]}`,
 	value: func() opencdc.StructuredData {
 		return opencdc.StructuredData{"kids": []any{map[string]any{"kids": []any{}, "named": map[string]any{}}}, "named": map[string]any{}}
+	},
+}, {
+	// A record reached inline again after a reference led back into its
+	// definition (review of #315).
+	name:   "inline re-entry after a reference",
+	schema: `{"type":"record","name":"A","fields":[{"name":"b","type":["null",{"type":"record","name":"B","fields":[{"name":"c","type":["null",{"type":"record","name":"C","fields":[{"name":"b","type":["null","B"]},{"name":"self","type":["null","C"]}]}]}]}]},{"name":"c","type":["null","C"]}]}`,
+	value: func() opencdc.StructuredData {
+		return opencdc.StructuredData{"b": nil, "c": nil}
+	},
+}, {
+	name:   "3-clique",
+	schema: cliqueSchema(3),
+	value: func() opencdc.StructuredData {
+		return opencdc.StructuredData{"r0": nil}
 	},
 }, {
 	name:   "mutual recursion",
@@ -88,5 +105,54 @@ func TestSerde_RecursiveSchema_Terminates(t *testing.T) {
 				panic("parse/marshal/unmarshal of a recursive schema did not return within 10s")
 			}
 		})
+	}
+}
+
+// cliqueSchema returns a record "Root" with a nullable field r0 of record R0,
+// where records R0..Rn-1 each have a nullable field for every other one, so
+// each refers to all the others.
+func cliqueSchema(n int) string {
+	def := func(i int) string {
+		var fields []string
+		for j := range n {
+			if j == i {
+				continue
+			}
+			t := fmt.Sprintf(`"R%d"`, j)
+			if j == i+1 {
+				t = "__DEF__" // defined inline below, the first time it is used
+			}
+			fields = append(fields, fmt.Sprintf(`{"name":"r%d","type":["null",%s]}`, j, t))
+		}
+		if len(fields) == 0 {
+			fields = append(fields, `{"name":"v","type":"long"}`)
+		}
+		return fmt.Sprintf(`{"type":"record","name":"R%d","fields":[%s]}`, i, strings.Join(fields, ","))
+	}
+	s := "__DEF__"
+	for i := range n {
+		s = strings.Replace(s, `__DEF__`, def(i), 1)
+	}
+	s = strings.Replace(s, `["null",__DEF__]`, `"null"`, 1)
+	return `{"type":"record","name":"Root","fields":[{"name":"r0","type":["null",` + s + `]}]}`
+}
+
+// TestParse_RecursiveSchema_TraversalIsBounded checks that schemas whose
+// recursive types expand to very many paths (n records that all refer to
+// each other expand to about n! paths) fail fast with ErrSchemaTooComplex,
+// instead of building paths that every Marshal walks.
+func TestParse_RecursiveSchema_TraversalIsBounded(t *testing.T) {
+	done := make(chan error, 1)
+	go func() {
+		_, err := Parse([]byte(cliqueSchema(9)))
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrSchemaTooComplex) {
+			t.Fatalf("want ErrSchemaTooComplex, got %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		panic("Parse of a 9-clique did not return within 10s")
 	}
 }

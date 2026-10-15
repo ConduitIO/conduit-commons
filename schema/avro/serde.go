@@ -111,7 +111,9 @@ func (s *Serde) String() string {
 // sort fields in the schema. It can be used in tests to ensure the schemas can
 // be compared.
 func (s *Serde) sort() {
-	traverseSchema(s.schema, sortFn)
+	// Only SerdeForType sorts, after newUnionResolver traversed the same
+	// schema without hitting the limit, so this cannot fail.
+	_ = traverseSchema(s.schema, sortFn)
 }
 
 // Parse parses a schema byte slice. By default the returned Serde enforces
@@ -126,6 +128,10 @@ func Parse(text []byte, opts ...Option) (*Serde, error) {
 	if err != nil {
 		return nil, err
 	}
+	ur, err := newUnionResolver(schema)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse avro schema: %w", err)
+	}
 	// Note: We do not sort fields here because field order is significant in
 	// Avro schemas. Sorting would alter the schema and change the output. In
 	// SerdeForType, sorting ensures consistency when creating a schema from a
@@ -133,7 +139,7 @@ func Parse(text []byte, opts ...Option) (*Serde, error) {
 	// order to match the schema definition.
 	return &Serde{
 		schema:        schema,
-		unionResolver: newUnionResolver(schema),
+		unionResolver: ur,
 		maxInputSize:  o.maxInputSize,
 		decodeAPI:     buildDecodeAPI(schema, o),
 	}, nil
@@ -151,9 +157,13 @@ func SerdeForType(v any, opts ...Option) (*Serde, error) {
 	if err != nil {
 		return nil, err
 	}
+	ur, err := newUnionResolver(schema)
+	if err != nil {
+		return nil, err
+	}
 	s := &Serde{
 		schema:        schema,
-		unionResolver: newUnionResolver(schema),
+		unionResolver: ur,
 		maxInputSize:  o.maxInputSize,
 		decodeAPI:     buildDecodeAPI(schema, o),
 	}
