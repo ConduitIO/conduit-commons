@@ -294,7 +294,7 @@ func (g *rtGen) named0() *rtType {
 
 func (g *rtGen) record(depth int) *rtType {
 	full, ns, attrs := g.fullName()
-	t := &rtType{kind: "record", name: full, group: "named:" + full, class: "maplike"}
+	t := &rtType{kind: ukRecord, name: full, group: "named:" + full, class: "maplike"}
 	n := 1 + g.rng.IntN(3)
 	fields := make([]string, 0, n)
 	outer := g.ns
@@ -312,10 +312,10 @@ func (g *rtGen) record(depth int) *rtType {
 
 func (g *rtGen) container(depth int, kind string) *rtType {
 	e := g.typ(depth + 1)
-	if kind == "map" {
-		return &rtType{kind: "map", name: "map", group: "map", class: "maplike", elem: e, json: `{"type":"map","values":` + e.json + `}`}
+	if kind == ukMap {
+		return &rtType{kind: ukMap, name: ukMap, group: ukMap, class: "maplike", elem: e, json: `{"type":"map","values":` + e.json + `}`}
 	}
-	return &rtType{kind: "array", name: "array", group: "array", class: "array", elem: e, json: `{"type":"array","items":` + e.json + `}`}
+	return &rtType{kind: ukArray, name: ukArray, group: ukArray, class: ukArray, elem: e, json: `{"type":"array","items":` + e.json + `}`}
 }
 
 // typ returns any type. Deep down it returns only types without children.
@@ -332,9 +332,9 @@ func (g *rtGen) typ(depth int) *rtType {
 	case choice < 5:
 		return g.record(depth)
 	case choice < 6:
-		return g.container(depth, "array")
+		return g.container(depth, ukArray)
 	case choice < 7:
-		return g.container(depth, "map")
+		return g.container(depth, ukMap)
 	default:
 		return g.union(depth)
 	}
@@ -347,7 +347,7 @@ func (g *rtGen) union(depth int) *rtType {
 	if g.rng.IntN(6) == 0 {
 		nb = 4
 	}
-	t := &rtType{kind: "union"}
+	t := &rtType{kind: ukUnion}
 	groups, classes := map[string]bool{}, map[string]bool{}
 	add := func(b *rtType) bool {
 		if groups[b.group] || (g.distinct && classes[b.class]) {
@@ -371,13 +371,13 @@ func (g *rtGen) union(depth int) *rtType {
 		case r == 2:
 			b = g.record(depth + 1)
 		case r == 3:
-			b = g.container(depth+1, "map")
+			b = g.container(depth+1, ukMap)
 		case r == 4:
-			b = g.container(depth+1, "array")
+			b = g.container(depth+1, ukArray)
 		default:
 			b = g.typ(depth + 1)
 		}
-		if b.kind == "union" || !add(b) {
+		if b.kind == ukUnion || !add(b) {
 			g.named = g.named[:mark] // its named types are not in the schema
 		}
 	}
@@ -421,7 +421,7 @@ func (g *rtGen) value(t *rtType, depth int) any {
 	case "double":
 		return float64(g.rng.IntN(1000)) / 4
 	case "string":
-		return []string{"A", "s", "map", "null", ""}[g.rng.IntN(5)]
+		return []string{"A", "s", ukMap, "null", ""}[g.rng.IntN(5)]
 	case "bytes":
 		return []byte{byte(g.rng.IntN(256))}
 	case "date":
@@ -442,25 +442,25 @@ func (g *rtGen) value(t *rtType, depth int) any {
 			a.Index(i).SetUint(uint64(g.rng.IntN(256)))
 		}
 		return a.Interface()
-	case "record":
+	case ukRecord:
 		m := map[string]any{}
 		for i, f := range t.items {
 			m[fmt.Sprintf("f%d", i)] = g.value(f, depth+1)
 		}
 		return m
-	case "map":
+	case ukMap:
 		m := map[string]any{}
 		for range g.length(depth) {
 			m[g.mapKey()] = g.value(t.elem, depth+1)
 		}
 		return m
-	case "array":
+	case ukArray:
 		a := make([]any, g.length(depth))
 		for i := range a {
 			a[i] = g.value(t.elem, depth+1)
 		}
 		return a
-	case "union":
+	case ukUnion:
 		b := t.items[g.rng.IntN(len(t.items))]
 		if b.kind == "null" {
 			return nil
@@ -479,9 +479,9 @@ func (g *rtGen) length(depth int) int {
 
 // mapKey returns a map key, often one that is also a union branch name.
 func (g *rtGen) mapKey() string {
-	keys := []string{"k0", "k1", "null", "int", "long", "string", "array", "boolean", "bytes.decimal"}
+	keys := []string{"k0", "k1", "null", "int", "long", "string", ukArray, "boolean", "bytes.decimal"}
 	if !g.distinct {
-		keys = append(keys, "map", "map")
+		keys = append(keys, ukMap, ukMap)
 	}
 	if len(g.named) > 0 && g.rng.IntN(4) == 0 {
 		return g.named[g.rng.IntN(len(g.named))].name
@@ -506,11 +506,11 @@ func TestSerde_Marshal_NullableBelowWrappedUnion(t *testing.T) {
 	}{
 		{
 			"3-branch union, nullable empty map below", `["null",` + rec(`{"type":"map","values":"int"}`) + `,"string"]`,
-			map[string]any{"R": map[string]any{"m": map[string]any{"map": map[string]any{}}}},
+			map[string]any{"R": map[string]any{"m": map[string]any{ukMap: map[string]any{}}}},
 		},
 		{
 			"3-branch union, nullable map below", `["null",` + rec(`{"type":"map","values":"int"}`) + `,"string"]`,
-			map[string]any{"R": map[string]any{"m": map[string]any{"map": map[string]any{"a": int32(1), "b": int32(2)}}}},
+			map[string]any{"R": map[string]any{"m": map[string]any{ukMap: map[string]any{"a": int32(1), "b": int32(2)}}}},
 		},
 		{
 			"3-branch union, nullable record below", `["null",` + rec(`{"type":"record","name":"S","namespace":"x","fields":[{"name":"x","type":"int"}]}`) + `,"string"]`,
@@ -526,11 +526,11 @@ func TestSerde_Marshal_NullableBelowWrappedUnion(t *testing.T) {
 		},
 		{
 			"2-branch union in an array, nullable map below", `{"type":"array","items":["null",` + rec(`{"type":"map","values":"int"}`) + `,{"type":"array","items":"int"}]}`,
-			[]any{map[string]any{"R": map[string]any{"m": map[string]any{"map": map[string]any{"a": int32(1), "b": int32(2)}}}}},
+			[]any{map[string]any{"R": map[string]any{"m": map[string]any{ukMap: map[string]any{"a": int32(1), "b": int32(2)}}}}},
 		},
 		{
 			"nullable record, nullable map below", `["null",` + rec(`{"type":"map","values":"int"}`) + `]`,
-			map[string]any{"R": map[string]any{"m": map[string]any{"map": map[string]any{"a": int32(1), "b": int32(2)}}}},
+			map[string]any{"R": map[string]any{"m": map[string]any{ukMap: map[string]any{"a": int32(1), "b": int32(2)}}}},
 		},
 	}
 	for _, tc := range testCases {
