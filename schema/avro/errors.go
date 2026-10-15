@@ -45,4 +45,9 @@ var (
 	// allocation ceilings"). This is a construction-time error, never
 	// returned by Marshal/Unmarshal.
 	ErrInvalidOption = errors.New("invalid avro serde option")
+
+	// ErrSchemaTooComplex is returned by Parse when expanding the schema's
+	// named types would visit too many schemas, which happens with several
+	// records that refer to each other recursively. See traverseSchema.
+	ErrSchemaTooComplex = errors.New("avro schema is too complex")
 )
