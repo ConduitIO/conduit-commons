@@ -20,9 +20,10 @@ import (
 	"github.com/conduitio/conduit-commons/opencdc"
 )
 
-// beforeMarshalCopy returns the value Serde.Marshal encodes in place of val.
+// copyForWrap returns the value Serde.Marshal hands to wrapSubstitutions in
+// place of val.
 //
-// BeforeMarshal rewrites union values inside the containers it walks, so
+// The wrapping rewrites union values inside the containers it walks, so
 // running it on the caller's value changes what the caller holds, and what
 // everything else that shares those containers holds (a record's Before and
 // After, fan-out branches, the connector's own retained data). A second
@@ -31,21 +32,18 @@ import (
 // (ConduitIO/conduit-commons#342).
 //
 // Invariant 6 (schema handling never silently mangles data): Marshal never
-// changes its input. When the schema has union paths to rewrite, the
-// containers BeforeMarshal could reach are copied first and BeforeMarshal
-// rewrites the copy. Only map and slice containers are copied; leaf values
-// (strings, numbers, []byte, time.Time, ...) are shared, because
-// BeforeMarshal never writes to them. A schema without such paths needs no
-// copy and val is returned as is.
-func (r unionResolver) beforeMarshalCopy(val any) (any, error) {
-	if len(r.mapUnionPaths) == 0 && len(r.arrayUnionPaths) == 0 {
-		return val, nil // BeforeMarshal's shortcut: nothing is rewritten
+// changes its input. When the schema has unions to wrap, the containers
+// wrapSubstitutions could reach are copied first and it rewrites the copy.
+// Only map and slice containers are copied; leaf values (strings, numbers,
+// []byte, time.Time, ...) are shared, because the wrapping never writes to
+// them. The copy is gated on wrapsUnions, the same flag wrapSubstitutions
+// uses to return early, so the two cannot disagree about whether anything is
+// rewritten.
+func (r unionResolver) copyForWrap(val any) any {
+	if !r.wrapsUnions {
+		return val // wrapSubstitutions returns no changes
 	}
-	val = newContainerCopier().copy(val)
-	if err := r.BeforeMarshal(val); err != nil {
-		return nil, err
-	}
-	return val, nil
+	return newContainerCopier().copy(val)
 }
 
 // containerKey identifies a map or slice by identity.
@@ -79,6 +77,12 @@ func (c *containerCopier) copy(v any) any {
 		return opencdc.StructuredData(c.copyMap(v))
 	case []any:
 		return c.copySlice(v)
+	case *any:
+		if v == nil {
+			return v
+		}
+		x := c.copy(*v)
+		return &x
 	case *map[string]any:
 		if v == nil {
 			return v
