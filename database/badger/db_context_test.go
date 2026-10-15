@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -373,4 +374,93 @@ func TestDB_AbandonedWrites_CountsOutcome(t *testing.T) {
 			is.Equal(db.AbandonedWrites(), AbandonedWriteStats{Abandoned: 1, Failed: tc.wantFailed})
 		})
 	}
+}
+
+// syncBuffer is a goroutine-safe log sink.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p) //nolint:wrapcheck // strings.Builder never fails
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestDB_Set_HandoffReportsEachOutcomeOnce races the caller's ctx against
+// the commit: the commit hook cancels the caller's ctx and then returns, so
+// Set sees the result and ctx.Done at about the same time. Each write's
+// outcome must reach exactly one place: the caller, or (if Set gave up) the
+// abandoned-write log and counters. Never both, never neither.
+func TestDB_Set_HandoffReportsEachOutcomeOnce(t *testing.T) {
+	is := is.New(t)
+	const writes = 2000
+	const secret = "VALUE-MUST-NOT-BE-LOGGED"
+
+	var logs syncBuffer
+	path := filepath.Join(t.TempDir(), "badger.db")
+	db, err := New(zerolog.New(&logs), path)
+	is.NoErr(err)
+
+	type current struct {
+		cancel context.CancelFunc
+		fail   bool
+	}
+	var cur atomic.Pointer[current]
+	errCommit := errors.New("injected commit failure")
+	db.commit = func(txn *badger.Txn) error {
+		c := cur.Load()
+		c.cancel()
+		if c.fail {
+			return errCommit
+		}
+		return txn.Commit()
+	}
+
+	var delivered, abandoned, abandonedFailing int
+	for i := 0; i < writes; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		fail := i%2 == 1
+		cur.Store(&current{cancel: cancel, fail: fail})
+
+		err := db.Set(ctx, fmt.Sprintf("k%d", i), []byte(secret))
+		switch {
+		case errors.Is(err, ErrWriteAbandoned):
+			abandoned++
+			if fail {
+				abandonedFailing++
+			}
+		case fail:
+			delivered++
+			is.True(errors.Is(err, errCommit)) // the caller got the real failure
+		default:
+			delivered++
+			is.NoErr(err)
+		}
+		cancel()
+	}
+	is.NoErr(db.Close()) // waits for every abandoned write to report
+
+	t.Logf("delivered %d, abandoned %d (%d failing)", delivered, abandoned, abandonedFailing)
+	if abandoned == 0 || delivered == 0 {
+		t.Fatalf("the race never went both ways (delivered %d, abandoned %d); the test proves nothing", delivered, abandoned)
+	}
+	is.Equal(delivered+abandoned, writes)
+
+	stats := db.AbandonedWrites()
+	out := logs.String()
+	failedLines := strings.Count(out, "abandoned write failed")
+	committedLines := strings.Count(out, "abandoned write committed")
+	is.Equal(stats.Abandoned, uint64(abandoned))
+	is.Equal(stats.Failed, uint64(abandonedFailing))
+	is.Equal(failedLines, abandonedFailing)
+	is.Equal(committedLines, abandoned-abandonedFailing)
+	is.True(!strings.Contains(out, secret)) // values are never logged
 }

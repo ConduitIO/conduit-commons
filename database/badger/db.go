@@ -67,6 +67,9 @@ type AbandonedWriteStats struct {
 	Abandoned uint64
 	// Failed is how many of those failed to commit after Set returned, so
 	// the key kept its old value. The rest committed, or are still running.
+	// Failed <= Abandoned always holds. Abandoned can briefly count a write
+	// that finished at the same moment its ctx ended and was reported to
+	// the caller after all; that count is taken back right away.
 	Failed uint64
 }
 
@@ -250,10 +253,13 @@ func (d *DB) Set(ctx context.Context, key string, value []byte) error {
 	case err := <-done:
 		return err
 	case <-ctx.Done():
-		if !handoff.CompareAndSwap(handoffWaiting, handoffAbandoned) {
-			return <-done // finished at the same moment; report what happened
-		}
+		// Count before the CAS, so a reader never sees Failed > Abandoned:
+		// once Set wins, the goroutine may count a failure at any moment.
 		d.abandoned.Add(1)
+		if !handoff.CompareAndSwap(handoffWaiting, handoffAbandoned) {
+			d.abandoned.Add(^uint64(0)) // not abandoned after all
+			return <-done               // finished at the same moment; report what happened
+		}
 		return fmt.Errorf("badger: set key %q: %w: %w", key, ErrWriteAbandoned, ctx.Err())
 	}
 }
