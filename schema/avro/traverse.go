@@ -38,7 +38,16 @@ type (
 
 // traverseSchema is a utility for traversing an avro schema and executing fn on
 // every schema in the tree.
+//
+// A reference is followed unless the type it refers to is already being
+// traversed further up the same path. Such a reference is a cycle (a
+// recursive type like a linked list), and following it would never end
+// (ConduitIO/conduit-commons#314). fn still sees the reference itself, but
+// not the types below it, so callers see each recursive type expanded once
+// per path.
 func traverseSchema(s avro.Schema, fn func(path)) {
+	// open holds the named types on the current path.
+	open := make(map[avro.Schema]bool)
 	var traverse func(avro.Schema, path)
 	traverse = func(s avro.Schema, p path) {
 		p = append(p, leg{s, nil})
@@ -51,8 +60,13 @@ func traverseSchema(s avro.Schema, fn func(path)) {
 		case *avro.ArraySchema:
 			traverse(s.Items(), p)
 		case *avro.RefSchema:
+			if open[s.Schema()] {
+				return // a cycle back to a type on this path
+			}
 			traverse(s.Schema(), p)
 		case *avro.RecordSchema:
+			open[s] = true
+			defer delete(open, s)
 			fields := s.Fields()
 			p = p[:len(p)-1]
 			for _, field := range fields {
