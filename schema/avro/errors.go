@@ -50,4 +50,17 @@ var (
 	// named types would visit too many schemas, which happens with several
 	// records that refer to each other recursively. See traverseSchema.
 	ErrSchemaTooComplex = errors.New("avro schema is too complex")
+
+	// ErrTruncatedInput is returned by Serde.Unmarshal when the input ends
+	// before the schema's value does: an empty payload for a record with a
+	// string field, or an array whose header declares more items than the
+	// input contains. The codec reports running out of input as io.EOF and
+	// treats that as success, which decoded such input to a record with nil
+	// fields (ConduitIO/conduit-commons#304).
+	ErrTruncatedInput = errors.New("avro input ends before the value is complete")
+
+	// ErrTrailingBytes is returned by Serde.Unmarshal when bytes are left
+	// over after a complete value. The payload was not written with this
+	// schema, or not only with it, so decoding the prefix would drop data.
+	ErrTrailingBytes = errors.New("avro input has bytes left over after the value")
 )
