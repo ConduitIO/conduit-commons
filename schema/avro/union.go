@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/iskorotkov/avro/v2"
 	"github.com/modern-go/reflect2"
 )
@@ -44,6 +43,9 @@ type unionResolver struct {
 	// nullUnionPaths are all the paths to nullable fields within a schema.
 	nullUnionPaths []path
 	resolver       *avro.TypeResolver
+	// schema is the schema the resolver was built for. AfterUnmarshal walks
+	// it alongside the decoded value.
+	schema avro.Schema
 }
 
 // newUnionResolver takes a schema and extracts the paths to all maps and arrays
@@ -83,218 +85,8 @@ func newUnionResolver(schema avro.Schema) (unionResolver, error) {
 		arrayUnionPaths: arrayUnionPaths,
 		nullUnionPaths:  nullUnionPaths,
 		resolver:        avro.NewTypeResolver(),
+		schema:          schema,
 	}, nil
-}
-
-// AfterUnmarshal traverses the input value 'val' using the schema and finds all
-// fields that are of the Avro Union type. In the input 'val', these Union type
-// fields are represented as maps with a single key that contains the name of
-// the type (e.g. map[string]any{"string":"foo"}). This function processes those
-// maps and extracts the actual value from them (e.g. "foo"), replacing the map
-// representation with the actual value.
-func (r unionResolver) AfterUnmarshal(val any) error {
-	if len(r.mapUnionPaths) == 0 &&
-		len(r.arrayUnionPaths) == 0 &&
-		len(r.nullUnionPaths) == 0 {
-		return nil // shortcut
-	}
-
-	substitutions, err := r.afterUnmarshalMapSubstitutions(val, nil)
-	if err != nil {
-		return err
-	}
-	substitutions, err = r.afterUnmarshalArraySubstitutions(val, substitutions)
-	if err != nil {
-		return err
-	}
-	substitutions, err = r.afterUnmarshalNullUnionSubstitutions(val, substitutions)
-	if err != nil {
-		return err
-	}
-
-	// We now have a list of substitutions, simply apply them.
-	for _, sub := range substitutions {
-		sub.substitute()
-	}
-	return nil
-}
-
-func (r unionResolver) afterUnmarshalMapSubstitutions(val any, substitutions []substitution) ([]substitution, error) {
-	for _, p := range r.mapUnionPaths {
-		// first collect all maps that have a union type in the schema
-		var maps []map[string]any
-		err := traverseValue(val, p, true, func(v any) {
-			if mapUnion, ok := v.(map[string]any); ok {
-				maps = append(maps, mapUnion)
-			}
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		// Loop through collected maps and collect all substitutions. These maps
-		// contain values encoded as maps with a single key:value pair, where
-		// key is the type name (e.g. {"int":1}). We want to replace all these
-		// maps with the actual value (e.g. 1).
-		// We don't replace them in the loop, because we want to make sure all
-		// maps actually contain only 1 value.
-		for i, mapUnion := range maps {
-			for k, v := range mapUnion {
-				if v == nil {
-					// do no change nil values
-					continue
-				}
-				vmap, ok := v.(map[string]any)
-				if !ok {
-					return nil, fmt.Errorf("expected map[string]any, got %T: %w", v, ErrSchemaValueMismatch)
-				}
-				if len(vmap) != 1 {
-					return nil, fmt.Errorf("expected single value encoded as a map, got %d elements: %w", len(vmap), ErrSchemaValueMismatch)
-				}
-
-				// this is a map with a single value, store the substitution
-				for _, actualVal := range vmap {
-					substitutions = append(substitutions, mapSubstitution{
-						m:   maps[i],
-						key: k,
-						val: actualVal,
-					})
-					break
-				}
-			}
-		}
-	}
-	return substitutions, nil
-}
-
-func (r unionResolver) afterUnmarshalArraySubstitutions(val any, substitutions []substitution) ([]substitution, error) {
-	for _, p := range r.arrayUnionPaths {
-		// first collect all arrays that have a union type in the schema
-		var arrays [][]any
-		err := traverseValue(val, p, true, func(v any) {
-			if arrayUnion, ok := v.([]any); ok {
-				arrays = append(arrays, arrayUnion)
-			}
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		// Loop through collected arrays and collect all substitutions. These
-		// arrays contain values encoded as maps with a single key:value pair,
-		// where key is the type name (e.g. {"int":1}). We want to replace all
-		// these maps with the actual value (e.g. 1).
-		// We don't replace them in the loop, because we want to make sure all
-		// maps actually contain only 1 value.
-		for i, arrayUnion := range arrays {
-			for index, v := range arrayUnion {
-				if v == nil {
-					// do no change nil values
-					continue
-				}
-				vmap, ok := v.(map[string]any)
-				if !ok {
-					return nil, fmt.Errorf("expected map[string]any, got %T: %w", v, ErrSchemaValueMismatch)
-				}
-				if len(vmap) != 1 {
-					return nil, fmt.Errorf("expected single value encoded as a map, got %d elements: %w", len(vmap), ErrSchemaValueMismatch)
-				}
-
-				// this is a map with a single value, store the substitution
-				for _, actualVal := range vmap {
-					substitutions = append(substitutions, arraySubstitution{
-						a:     arrays[i],
-						index: index,
-						val:   actualVal,
-					})
-					break
-				}
-			}
-		}
-	}
-	return substitutions, nil
-}
-
-func (r unionResolver) afterUnmarshalNullUnionSubstitutions(val any, substitutions []substitution) ([]substitution, error) {
-	for _, nullUnionPath := range r.nullUnionPaths {
-		// first collect all parents that contain a value that is nullable
-		parentMaps, err := r.collectParentsForNullUnionPath(val, nullUnionPath)
-		if err != nil {
-			return nil, err
-		}
-
-		// nullUnionField is the fields that needs to be substitured.
-		// It's the last leg in the path.
-		nullUnionField := nullUnionPath[len(nullUnionPath)-1].field
-
-		// Loop through collected parent maps and collect all substitutions.
-		for _, parentMap := range parentMaps {
-			// nullUnionField is nil if the field represents a key in a map.
-			// In that case, all the values in the map need to be checked and substituted.
-			if nullUnionField == nil {
-				for key := range parentMap {
-					sub, err := r.substitute(parentMap, key)
-					if err != nil {
-						return nil, err
-					}
-					// substitution not needed for this key, skip to next
-					if sub == nil {
-						continue
-					}
-					substitutions = append(substitutions, sub)
-				}
-				continue
-			}
-			// nullUnionField is not nil if it's a field within a record schema.
-			// In that case, we only substitute that field.
-			sub, err := r.substitute(parentMap, nullUnionField.Name())
-			if err != nil {
-				return nil, err
-			}
-			// substitution not needed for this key, skip to next
-			if sub == nil {
-				continue
-			}
-			substitutions = append(substitutions, sub)
-		}
-	}
-	return substitutions, nil
-}
-
-// substitute substitutes maps inserted by the underlying codec's Unmarshal()
-// function (github.com/iskorotkov/avro/v2, a fork of hamba/avro that shares
-// this behavior unchanged) with actual values. The input map (returned by
-// Unmarshal())
-// contain values encoded as maps with a single key:value pair, where
-// key is the type name (e.g. {"int":1}). We want to replace all these
-// maps with the actual value (e.g. 1).
-func (r unionResolver) substitute(parentMap map[string]any, name string) (substitution, error) {
-	avroVal := parentMap[name]
-	if avroVal == nil {
-		// don't change nil values
-		return nil, nil //nolint:nilnil // This is the expected behavior.
-	}
-	vmap, ok := avroVal.(map[string]any)
-	if !ok {
-		// if the value is not a map, it's not a nil value
-		return nil, nil //nolint:nilnil // This is the expected behavior.
-	}
-	if len(vmap) != 1 {
-		return nil, fmt.Errorf("expected single value for %s encoded as a map, got %d elements: %w", name, len(vmap), ErrSchemaValueMismatch)
-	}
-
-	// this is a map with a single value, store the substitution
-	for _, actualVal := range vmap {
-		return mapSubstitution{
-			m:   parentMap,
-			key: name,
-			val: actualVal,
-		}, nil
-	}
-
-	// we can reach this line only if we didn't return
-	// the substitution from the loop above
-	panic("substitution not returned (this is a bug in the code)")
 }
 
 // BeforeMarshal traverses the value using the schema and finds all values that
@@ -446,22 +238,6 @@ func (r unionResolver) resolveNameForType(v any, us *avro.UnionSchema) (string, 
 		}
 	}
 	return "", fmt.Errorf("can't resolve %v in union type %v: %w", names, us.String(), ErrSchemaValueMismatch)
-}
-
-func (r unionResolver) collectParentsForNullUnionPath(val any, p path) ([]map[string]any, error) {
-	var parentMaps []map[string]any
-	err := traverseValue(val, p, true, func(v any) {
-		switch v := v.(type) {
-		case map[string]any:
-			parentMaps = append(parentMaps, v)
-		case *map[string]any:
-			parentMaps = append(parentMaps, *v)
-		case *opencdc.StructuredData:
-			parentMaps = append(parentMaps, *v)
-		}
-	})
-
-	return parentMaps, err
 }
 
 func isMapUnion(schema avro.Schema) bool {
