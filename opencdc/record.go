@@ -92,10 +92,10 @@ func (r Record) Map() map[string]interface{} {
 		"position":  []byte(r.Position),
 		"operation": r.Operation.String(),
 		"metadata":  genericMetadata,
-		"key":       r.mapData(r.Key),
-		"payload": map[string]interface{}{
-			"before": r.mapData(r.Payload.Before),
-			"after":  r.mapData(r.Payload.After),
+		fieldKey:    r.mapData(r.Key),
+		fieldPayload: map[string]interface{}{
+			fieldBefore: r.mapData(r.Payload.Before),
+			fieldAfter:  r.mapData(r.Payload.After),
 		},
 	}
 }
