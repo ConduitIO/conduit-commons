@@ -66,9 +66,16 @@ func newEncodeAPI() avro.API {
 // (see encode.go), which sorts map keys before writing them.
 func (s *Serde) Marshal(v any) ([]byte, error) {
 	// Invariant 6: the union wrapping happens on a copy, never on v.
-	v, err := s.unionResolver.beforeMarshalCopy(v)
+	v = s.unionResolver.copyForWrap(v)
+	root, subs, err := s.unionResolver.wrapSubstitutions(v)
 	if err != nil {
 		return nil, err
+	}
+	if root != nil {
+		v = root // a top-level union value in the named form
+	}
+	for _, sub := range subs {
+		sub.substitute()
 	}
 	var bytes []byte
 	if s.hasMap {

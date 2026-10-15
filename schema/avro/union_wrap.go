@@ -16,6 +16,7 @@ package avro
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"time"
@@ -52,37 +53,55 @@ import (
 //
 // BeforeMarshal changes val only if it returns nil. It first collects every
 // change and applies them once the whole value has been checked.
+// Serde.Marshal does not use it: it runs wrapSubstitutions on a private copy
+// of the value (see copyForWrap), so it never has to undo anything.
 func (r unionResolver) BeforeMarshal(val any) error {
-	if !r.hasUnion {
-		return nil
-	}
-
-	w := unionWrapper{r: r}
-	var err error
-	switch v := val.(type) {
-	case *opencdc.StructuredData:
-		if v != nil && *v != nil {
-			_, _, err = w.value(r.schema, map[string]any(*v), posTop)
-		}
-	case *map[string]any:
-		if v != nil && *v != nil {
-			_, _, err = w.value(r.schema, *v, posTop)
-		}
-	case *any:
-		if v != nil {
-			_, _, err = w.value(r.schema, *v, posTop)
-		}
-	default:
-		_, _, err = w.value(r.schema, val, posTop)
-	}
+	root, subs, err := r.wrapSubstitutions(val)
 	if err != nil {
 		return err
 	}
-
-	for _, sub := range w.subs {
+	for _, sub := range subs {
 		sub.substitute()
 	}
+	if p, ok := val.(*any); ok && root != nil {
+		*p = root
+	}
 	return nil
+}
+
+// wrapSubstitutions returns the changes BeforeMarshal makes to val, without
+// making them. If the schema is a union and the value itself has to be
+// wrapped, root is its replacement (and val can't be changed in place).
+func (r unionResolver) wrapSubstitutions(val any) (root any, subs []substitution, err error) {
+	if !r.wrapsUnions {
+		return nil, nil, nil
+	}
+
+	w := unionWrapper{r: r}
+	replace := false
+	switch v := val.(type) {
+	case *opencdc.StructuredData:
+		if v != nil && *v != nil {
+			root, replace, err = w.value(r.schema, map[string]any(*v), posTop)
+		}
+	case *map[string]any:
+		if v != nil && *v != nil {
+			root, replace, err = w.value(r.schema, *v, posTop)
+		}
+	case *any:
+		if v != nil {
+			root, replace, err = w.value(r.schema, *v, posTop)
+		}
+	default:
+		root, replace, err = w.value(r.schema, val, posTop)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if !replace {
+		root = nil
+	}
+	return root, w.subs, nil
 }
 
 // unionWrapper collects the substitutions BeforeMarshal applies. It never
@@ -109,8 +128,11 @@ func (w *unionWrapper) value(s avro.Schema, v any, pos unionPosition) (any, bool
 	case *avro.MapSchema:
 		return nil, false, w.mapValues(s, v)
 	case *avro.UnionSchema:
+		if isTrivialUnion(s) {
+			return nil, false, nil // the codec resolves the value itself
+		}
 		if !unwrapsAt(s, pos) {
-			return nil, false, w.wrappedUnion(s, v)
+			return w.wrappedUnion(s, v)
 		}
 		return w.unwrappedUnion(s, v, pos)
 	}
@@ -175,29 +197,34 @@ func (w *unionWrapper) mapValues(s *avro.MapSchema, v any) error {
 // wrappedUnion walks v, a value of a union that AfterUnmarshal leaves in the
 // codec's form: the named form, or a bare value when the codec resolves
 // every branch by Go type (and then nothing below it is a union to wrap). It
-// looks inside a named value and leaves anything else for the codec to
-// accept or reject. Such a value is never replaced.
-func (w *unionWrapper) wrappedUnion(us *avro.UnionSchema, v any) error {
+// looks inside a named value. A bare value is wrapped only if the codec
+// would resolve it to the wrong branch, and anything else is left for the
+// codec to accept or reject.
+func (w *unionWrapper) wrappedUnion(us *avro.UnionSchema, v any) (any, bool, error) {
 	named, ok := asStringMap(v)
 	if !ok {
 		// The codec resolves a bare value to the first branch its Go type
 		// names. A time.Time in ["int.date", "long.timestamp-millis"] names
-		// both, and the codec would write a timestamp as a date.
-		_, err := w.r.readOther(us, v, false)
-		return err
+		// both, and the codec would write a timestamp with a time of day as
+		// a date.
+		rd, err := w.r.readOther(us, v, false, true)
+		if err != nil || !rd.wrap {
+			return nil, false, err
+		}
+		return map[string]any{rd.name: v}, true, nil
 	}
 	if len(named) != 1 {
-		return nil
+		return nil, false, nil
 	}
 	name, inner := singleMapEntry(named)
 	branch, idx := us.Types().Get(name)
 	if idx < 0 {
-		return nil
+		return nil, false, nil
 	}
 	// A union never directly contains a union, so the branch's own children
 	// decide their positions and inner is never replaced.
 	_, _, err := w.value(branch, inner, posTop)
-	return err
+	return nil, false, err
 }
 
 // unwrappedUnion walks v, a value of a union that AfterUnmarshal unwraps at
@@ -208,9 +235,9 @@ func (w *unionWrapper) unwrappedUnion(us *avro.UnionSchema, v any, pos unionPosi
 	var rd unionReading
 	var err error
 	if m, ok := asStringMap(v); ok {
-		rd, err = readMap(us, m)
+		rd, err = readMap(us, m, isContainerUnionAt(us, pos))
 	} else {
-		rd, err = w.r.readOther(us, v, isContainerUnionAt(us, pos))
+		rd, err = w.r.readOther(us, v, isContainerUnionAt(us, pos), false)
 	}
 	if err != nil || rd.branch == nil {
 		return nil, false, err // no reading: the codec accepts or rejects v itself
@@ -259,7 +286,7 @@ type unionReading struct {
 // that branch. It must have exactly one reading: none or several is an
 // error, because the codec would either reject it later with a less useful
 // error, or encode it as a branch that was not meant.
-func readMap(us *avro.UnionSchema, m map[string]any) (unionReading, error) {
+func readMap(us *avro.UnionSchema, m map[string]any, container bool) (unionReading, error) {
 	var readings []unionReading
 	for _, t := range us.Types() {
 		switch derefSchema(t).(type) {
@@ -269,7 +296,10 @@ func readMap(us *avro.UnionSchema, m map[string]any) (unionReading, error) {
 			}
 		}
 	}
-	if len(m) == 1 {
+	// Where BeforeMarshal has always wrapped every value (container), a
+	// caller never had to pass the named form, and a decoded value is always
+	// bare, so a bare reading wins over the named one.
+	if len(m) == 1 && (!container || len(readings) == 0) {
 		name, inner := singleMapEntry(m)
 		if t, idx := us.Types().Get(name); idx >= 0 && t.Type() != avro.Null && fitsSchema(t, inner) {
 			readings = append(readings, unionReading{name: name, branch: t, named: true, inner: inner})
@@ -287,8 +317,9 @@ func readMap(us *avro.UnionSchema, m map[string]any) (unionReading, error) {
 // cannot resolve by Go type. alwaysWrap is set where BeforeMarshal has
 // always wrapped every value (see isContainerUnionAt); only there is no
 // reading an error, elsewhere v is left for the codec to accept or reject.
-// More than one reading is an error.
-func (r unionResolver) readOther(us *avro.UnionSchema, v any, alwaysWrap bool) (unionReading, error) {
+// More than one reading is an error. codecBare is set where the codec
+// itself decodes v bare (see resolvedReadings).
+func (r unionResolver) readOther(us *avro.UnionSchema, v any, alwaysWrap, codecBare bool) (unionReading, error) {
 	var readings []unionReading
 	t := reflect.TypeOf(v)
 	switch {
@@ -302,7 +333,7 @@ func (r unionResolver) readOther(us *avro.UnionSchema, v any, alwaysWrap bool) (
 			readings = append(readings, unionReading{name: avroArrayType, branch: branch, wrap: alwaysWrap})
 		}
 	default:
-		readings = r.resolvedReadings(us, v, alwaysWrap)
+		readings = r.resolvedReadings(us, v, alwaysWrap, codecBare)
 		for _, b := range us.Types() {
 			if fitsUnresolvableBranch(b, v) {
 				readings = append(readings, unionReading{name: unionBranchName(b), branch: b, wrap: true})
@@ -320,11 +351,19 @@ func (r unionResolver) readOther(us *avro.UnionSchema, v any, alwaysWrap bool) (
 
 // resolvedReadings returns the branches of us that the codec's type
 // resolver names for v. The codec takes the first of them. More than one is
-// ambiguous (a time.Time is a date and a timestamp, a time.Duration is
-// time-millis and time-micros), except for a Go int: the codec decodes an
-// int into it and a long into an int64, so int, which it names first, is the
-// right reading.
-func (r unionResolver) resolvedReadings(us *avro.UnionSchema, v any, wrap bool) []unionReading {
+// ambiguous, except:
+//   - for a Go int: the codec decodes an int into it and a long into an
+//     int64, so int, which it names first, is the right reading;
+//   - for a time.Time or time.Duration, only the branches that hold v without
+//     losing precision count. The codec decodes a date to midnight UTC, so a
+//     time.Time with a time of day is a timestamp, and a Duration with a
+//     sub-millisecond part is time-micros. A value that several candidates
+//     hold exactly (midnight, whole milliseconds) decodes to the same value
+//     from each. Where the codec itself decodes the union bare (codecBare),
+//     the branch it picked is lost anyway, so the codec's own pick stands, as
+//     it always has. Where AfterUnmarshal removed the codec's named form, the
+//     value stays ambiguous, because the branch is what changes.
+func (r unionResolver) resolvedReadings(us *avro.UnionSchema, v any, wrap, codecBare bool) []unionReading {
 	names, err := r.resolver.Name(reflect2.TypeOf(v))
 	if err != nil {
 		return nil
@@ -338,7 +377,55 @@ func (r unionResolver) resolvedReadings(us *avro.UnionSchema, v any, wrap bool) 
 			}
 		}
 	}
+	if len(readings) > 1 {
+		first := readings[0].name
+		exact := readings[:0:0]
+		for _, rd := range readings {
+			if holdsExactly(rd.branch, v) {
+				exact = append(exact, rd)
+			}
+		}
+		if len(exact) > 0 {
+			readings = exact
+		}
+		if codecBare && len(readings) > 1 && readings[0].name == first {
+			readings = readings[:1]
+		}
+		if len(readings) == 1 && readings[0].name != first {
+			readings[0].wrap = true // the codec would take first
+		}
+	}
 	return readings
+}
+
+// holdsExactly reports whether a time.Time or time.Duration v survives
+// encoding with the logical type of s and decoding again. It is true for
+// any other value.
+func holdsExactly(s avro.Schema, v any) bool {
+	var lt avro.LogicalType
+	if ls, ok := s.(avro.LogicalTypeSchema); ok && ls.Logical() != nil {
+		lt = ls.Logical().Type()
+	}
+	switch v := v.(type) {
+	case time.Time:
+		u := v.UTC()
+		switch lt { //nolint:exhaustive // only time logical types hold a time.Time
+		case avro.Date:
+			return u.Hour() == 0 && u.Minute() == 0 && u.Second() == 0 && u.Nanosecond() == 0
+		case avro.TimestampMillis, avro.LocalTimestampMillis:
+			return u.Nanosecond()%int(time.Millisecond) == 0
+		case avro.TimestampMicros, avro.LocalTimestampMicros:
+			return u.Nanosecond()%int(time.Microsecond) == 0
+		}
+	case time.Duration:
+		switch lt { //nolint:exhaustive // only time logical types hold a time.Duration
+		case avro.TimeMillis:
+			return v%time.Millisecond == 0 && v/time.Millisecond <= math.MaxInt32 && v/time.Millisecond >= math.MinInt32
+		case avro.TimeMicros:
+			return v%time.Microsecond == 0
+		}
+	}
+	return true
 }
 
 // oneReading returns the only reading, or an error if there are several.
