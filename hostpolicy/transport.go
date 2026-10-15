@@ -92,15 +92,33 @@ var (
 	podIdentityV6 = netip.MustParseAddr("fd00:ec2::23")
 )
 
-// IsRefusedAddr reports whether addr is an address DialControl refuses: IPv4
-// link-local (169.254.0.0/16, which holds IMDS, the ECS credential endpoint and
-// the EKS Pod Identity agent), IPv6 link-local (fe80::/10), the IPv6 IMDS
-// address fd00:ec2::254 and the IPv6 Pod Identity address fd00:ec2::23.
-// IPv4-mapped IPv6 forms (::ffff:169.254.169.254) are unmapped first.
-// Private ranges and loopback are not refused: an operator who allowlists
-// https://minio.internal chose a private address on purpose.
+// nat64Prefix is the well-known NAT64 prefix (RFC 6052). On an IPv6-only
+// network with DNS64, 64:ff9b::a9fe:a9fe reaches 169.254.169.254.
+var nat64Prefix = netip.MustParsePrefix("64:ff9b::/96")
+
+// IsRefusedAddr reports whether addr is an address DialControl refuses:
+//
+//   - IPv4 link-local 169.254.0.0/16. On AWS that holds IMDS
+//     (169.254.169.254), the ECS credential endpoint (169.254.170.2) and the
+//     EKS Pod Identity agent (169.254.170.23); GCP, Azure and OCI serve
+//     their metadata on 169.254.169.254 as well.
+//   - IPv6 link-local fe80::/10.
+//   - The AWS IPv6 metadata addresses fd00:ec2::254 (IMDS) and fd00:ec2::23
+//     (Pod Identity).
+//   - The IPv4-mapped (::ffff:169.254.x.x) and NAT64-embedded
+//     (64:ff9b::169.254.x.x) forms of the IPv4 range.
+//
+// Scope: this is not a list of every cloud's metadata service. Metadata
+// endpoints outside link-local space, such as Alibaba Cloud's
+// 100.100.100.200, are not refused. Private ranges and loopback are not
+// refused either: an operator who allowlists https://minio.internal chose a
+// private address on purpose.
 func IsRefusedAddr(addr netip.Addr) bool {
-	addr = addr.Unmap().WithZone("")
+	addr = addr.WithZone("").Unmap()
+	if addr.Is6() && nat64Prefix.Contains(addr) {
+		b := addr.As16()
+		addr = netip.AddrFrom4([4]byte{b[12], b[13], b[14], b[15]})
+	}
 	if addr.IsLinkLocalUnicast() {
 		return true
 	}
