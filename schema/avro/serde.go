@@ -27,6 +27,25 @@ type Serde struct {
 	unionResolver unionResolver
 	maxInputSize  int      // 0 = unlimited (default); see WithMaxInputSize
 	decodeAPI     avro.API // built once at construction from maxInputSize; see limits.go
+	encodeAPI     avro.API // this Serde's own encoder cache; see newEncodeAPI
+}
+
+// newEncodeAPI returns the codec configuration a Serde encodes with. It has
+// the same settings as the codec's package-level DefaultConfig, so the bytes
+// are the same, but its own encoder cache.
+//
+// Invariant 6 (schema handling never silently mangles data): a Serde must
+// never encode with an encoder compiled for another schema. The codec caches
+// compiled encoders by the fingerprint of a schema's string form, and the
+// string form of a reference to a named type is only the name. So
+// {"type":"array","items":"fx"} has one fingerprint no matter how fx is
+// defined, and with one shared cache, a Serde whose fx is decimal(10,2)
+// reused the encoder of a Serde whose fx is decimal(10,6) and wrote 1.5 as
+// 15000 (ConduitIO/conduit-commons#305). Enum indexes and record field order
+// went wrong the same way. Names are unique within one schema, so a cache
+// that only ever sees one schema cannot mix them up.
+func newEncodeAPI() avro.API {
+	return avro.Config{}.Freeze()
 }
 
 // Marshal returns the Avro encoding of v. Note that this function may mutate v.
@@ -38,7 +57,7 @@ func (s *Serde) Marshal(v any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	bytes, err := avro.Marshal(s.schema, v)
+	bytes, err := s.encodeAPI.Marshal(s.schema, v)
 	if err != nil {
 		return nil, fmt.Errorf("could not marshal into avro: %w", err)
 	}
@@ -120,7 +139,12 @@ func (s *Serde) sort() {
 // no input-size ceiling on Unmarshal; pass WithMaxInputSize to opt into
 // one.
 func Parse(text []byte, opts ...Option) (*Serde, error) {
-	schema, err := avro.ParseBytes(text)
+	// Parse with a cache of this schema's own. avro.ParseBytes registers
+	// every named type in the codec's process-wide DefaultSchemaCache, so a
+	// schema could use a name it never defines and silently get whatever
+	// another schema, parsed earlier in the process, defined under that name.
+	// Invariant 6: a schema only ever means what its own text says.
+	schema, err := avro.ParseBytesWithCache(text, "", &avro.SchemaCache{})
 	if err != nil {
 		return nil, fmt.Errorf("could not parse avro schema: %w", err)
 	}
@@ -142,6 +166,7 @@ func Parse(text []byte, opts ...Option) (*Serde, error) {
 		unionResolver: ur,
 		maxInputSize:  o.maxInputSize,
 		decodeAPI:     buildDecodeAPI(schema, o),
+		encodeAPI:     newEncodeAPI(),
 	}, nil
 }
 
@@ -166,6 +191,7 @@ func SerdeForType(v any, opts ...Option) (*Serde, error) {
 		unionResolver: ur,
 		maxInputSize:  o.maxInputSize,
 		decodeAPI:     buildDecodeAPI(schema, o),
+		encodeAPI:     newEncodeAPI(),
 	}
 	// Sort fields to ensure consistent schema representation.
 	s.sort()
