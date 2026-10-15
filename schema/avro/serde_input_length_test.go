@@ -125,18 +125,41 @@ func TestSerde_Unmarshal_IssueCases(t *testing.T) {
 // TestSerde_Unmarshal_EmptyEncodingsStillDecode checks that a value whose
 // encoding is zero bytes long still decodes from empty input.
 func TestSerde_Unmarshal_EmptyEncodingsStillDecode(t *testing.T) {
-	for _, schema := range []string{
+	// Only a value whose encoding really is zero bytes long decodes from
+	// empty input. Everything else needs at least one byte (see
+	// TestSerde_Unmarshal_RejectsTruncatedInput).
+	records := []string{
 		`{"type":"record","name":"r","fields":[]}`,
 		`{"type":"record","name":"r","fields":[{"name":"f","type":"null"}]}`,
-	} {
+		`{"type":"record","name":"r","fields":[{"name":"f","type":"null"},{"name":"g","type":{"type":"record","name":"e","fields":[]}}]}`,
+		`{"type":"record","name":"r","fields":[{"name":"f","type":{"type":"fixed","name":"z","size":0}}]}`,
+	}
+	for _, schema := range records {
 		s, err := Parse([]byte(schema))
 		if err != nil {
 			t.Fatal(err)
 		}
-		var got opencdc.StructuredData
-		if err := s.Unmarshal(nil, &got); err != nil {
-			t.Errorf("%s: %v", schema, err)
+		for _, in := range [][]byte{nil, {}} {
+			var got opencdc.StructuredData
+			if err := s.Unmarshal(in, &got); err != nil {
+				t.Errorf("%s, input %#v: %v", schema, in, err)
+			}
+			// What it decoded to encodes back to zero bytes.
+			b, err := s.Marshal(got)
+			if err != nil || len(b) != 0 {
+				t.Errorf("%s: re-encoded %v as %x, %v", schema, got, b, err)
+			}
 		}
+	}
+
+	// A top-level null schema.
+	s, err := Parse([]byte(`"null"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v any
+	if err := s.Unmarshal([]byte{}, &v); err != nil || v != nil {
+		t.Errorf(`"null": got %v, %v`, v, err)
 	}
 }
 
