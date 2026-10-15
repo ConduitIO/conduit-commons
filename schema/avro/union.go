@@ -46,13 +46,13 @@ type unionResolver struct {
 // with union types. With this information the resolver can traverse the values
 // in BeforeMarshal and AfterUnmarshal directly to the value that needs to be
 // substituted.
-func newUnionResolver(schema avro.Schema) unionResolver {
+func newUnionResolver(schema avro.Schema) (unionResolver, error) {
 	var mapUnionPaths []path
 	var arrayUnionPaths []path
 	var nullUnionPaths []path
 	// traverse the schema and extract paths to all maps and arrays with a union
 	// as the value type
-	traverseSchema(schema, func(p path) {
+	err := traverseSchema(schema, func(p path) {
 		switch {
 		case isMapUnion(p[len(p)-1].schema):
 			// path points to a map with a union type, copy and store it
@@ -71,12 +71,15 @@ func newUnionResolver(schema avro.Schema) unionResolver {
 			nullUnionPaths = append(nullUnionPaths, pCopy)
 		}
 	})
+	if err != nil {
+		return unionResolver{}, err
+	}
 	return unionResolver{
 		mapUnionPaths:   mapUnionPaths,
 		arrayUnionPaths: arrayUnionPaths,
 		nullUnionPaths:  nullUnionPaths,
 		resolver:        avro.NewTypeResolver(),
-	}
+	}, nil
 }
 
 // AfterUnmarshal traverses the input value 'val' using the schema and finds all
