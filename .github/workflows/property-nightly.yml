@@ -98,13 +98,14 @@ jobs:
           key: fuzz-corpus-${{ github.run_id }}
 
       # A failing input is written to testdata/fuzz/<target>/ in the package,
-      # next to any committed seeds. Upload only files git does not track, so
+      # next to any committed seeds. The glob pathspec also matches the
+      # module's root package (testdata/fuzz/... with no directory before it). Upload only files git does not track, so
       # the artifact holds what this run found.
       - name: Collect new failing fuzz inputs
         if: failure()
         run: |
           mkdir -p "$RUNNER_TEMP/fuzz-failures"
-          git ls-files --others --exclude-standard -- '*/testdata/fuzz/*' |
+          git ls-files --others --exclude-standard -- ':(glob)**/testdata/fuzz/**' |
             while IFS= read -r f; do
               mkdir -p "$RUNNER_TEMP/fuzz-failures/$(dirname "$f")"
               cp "$f" "$RUNNER_TEMP/fuzz-failures/$f"
