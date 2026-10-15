@@ -15,6 +15,7 @@
 package avro
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math/big"
@@ -141,6 +142,9 @@ func checkUnionRoundTrip(t *testing.T, seed uint64, distinct bool) bool {
 		return false
 	}
 
+	if diff := cmp.Diff(before, decoded, rtCmp...); diff != "" {
+		t.Fatalf("seed %d: marshal changed its input (-before +after):\n%s", seed, diff)
+	}
 	var got any
 	if err := api.Unmarshal(s.schema, reencoded, &got); err != nil {
 		t.Fatalf("seed %d: codec decode of the re-encoded value: %v", seed, err)
@@ -586,8 +590,12 @@ func TestSerde_Marshal_AmbiguousUnionValue(t *testing.T) {
 			map[string]any{"k": "A"},
 		},
 		{
-			"date or timestamp", `["null",{"type":"int","logicalType":"date"},{"type":"long","logicalType":"timestamp-millis"}]`,
-			time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+			"date or timestamp at midnight, as an array item", `{"type":"array","items":["null",{"type":"int","logicalType":"date"},{"type":"long","logicalType":"timestamp-millis"},{"type":"map","values":"int"}]}`,
+			[]any{time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)},
+		},
+		{
+			"time-millis or time-micros in whole milliseconds, as a map value", `{"type":"map","values":[{"type":"int","logicalType":"time-millis"},{"type":"long","logicalType":"time-micros"},{"type":"array","items":"int"}]}`,
+			map[string]any{"k": 1500 * time.Millisecond},
 		},
 	}
 	for _, tc := range testCases {
@@ -606,5 +614,167 @@ func TestSerde_Marshal_AmbiguousUnionValue(t *testing.T) {
 				t.Fatalf("failed marshal changed its input (-before +after):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestSerde_Marshal_TimeUnionPrecision checks that a time.Time or
+// time.Duration in a union with two time branches goes to the branch that
+// holds it exactly. The codec decodes a date to midnight UTC and a
+// time-millis to whole milliseconds, so a value with a time of day or a
+// sub-millisecond part has only one exact reading. The codec itself takes
+// the first branch its resolver names, which wrote such a timestamp as a
+// date. A value both branches hold exactly is ambiguous only where
+// AfterUnmarshal removed the codec's named form; see
+// TestSerde_Marshal_AmbiguousUnionValue.
+func TestSerde_Marshal_TimeUnionPrecision(t *testing.T) {
+	dateOrTS := `{"type":"int","logicalType":"date"},{"type":"long","logicalType":"timestamp-millis"}`
+	testCases := []struct {
+		name  string
+		field string
+		value any
+	}{
+		{"timestamp with a time of day, as a field", `[` + dateOrTS + `]`, time.Date(2020, 1, 2, 13, 14, 15, 0, time.UTC)},
+		{"timestamp with a time of day, in a 3-branch union", `["null",` + dateOrTS + `]`, time.Date(2020, 1, 2, 13, 14, 15, 0, time.UTC)},
+		{
+			"timestamp with a time of day, as an array item", `{"type":"array","items":["null",` + dateOrTS + `,{"type":"map","values":"int"}]}`,
+			[]any{time.Date(2020, 1, 2, 13, 14, 15, 0, time.UTC)},
+		},
+		{"sub-millisecond duration", `[{"type":"int","logicalType":"time-millis"},{"type":"long","logicalType":"time-micros"}]`, 1500 * time.Microsecond},
+		// Where the codec decodes the union bare, a value both branches hold
+		// exactly keeps the codec's own pick, as before.
+		{"midnight, as a field", `[` + dateOrTS + `]`, time.Date(2020, 1, 2, 0, 0, 0, 0, time.UTC)},
+		{"whole milliseconds, as a field", `[{"type":"int","logicalType":"time-millis"},{"type":"long","logicalType":"time-micros"}]`, 1500 * time.Millisecond},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := Parse([]byte(`{"type":"record","name":"Root","fields":[{"name":"f","type":` + tc.field + `}]}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := s.Marshal(opencdc.StructuredData{"f": tc.value})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got opencdc.StructuredData
+			if err := s.Unmarshal(b, &got); err != nil {
+				t.Fatal(err)
+			}
+			if diff := cmp.Diff(tc.value, got["f"]); diff != "" {
+				t.Fatalf("value changed (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestSerde_Marshal_ContainerUnionPrefersBareReading checks that where
+// BeforeMarshal has always wrapped every value (a union with an array or
+// map branch as an array item or map value), a map that reads both as a
+// bare value and as the named form is read as bare, which is what
+// Unmarshal returns there.
+func TestSerde_Marshal_ContainerUnionPrefersBareReading(t *testing.T) {
+	text := `{"type":"record","name":"Root","fields":[{"name":"f","type":{"type":"array","items":["null",` +
+		`{"type":"map","values":["null","int",{"type":"map","values":"int"}]},{"type":"array","items":"int"}]}}]}`
+	s, err := Parse([]byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A map with a single key "map" whose value is a map. Bare, it is a
+	// map with one entry; named, it is {"map": <a map of the branch>}.
+	in := opencdc.StructuredData{"f": []any{map[string]any{"map": map[string]any{"a": 1}}}}
+	b, err := s.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got opencdc.StructuredData
+	if err := s.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	want := opencdc.StructuredData{"f": []any{map[string]any{"map": map[string]any{"a": 1}}}}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Fatalf("round trip changed the data (-want +got):\n%s", diff)
+	}
+}
+
+// TestSerde_Marshal_LeavesInputUnchanged checks that Marshal puts the
+// caller's value back after encoding, both when the codec fails (so a
+// record sent to a DLQ keeps its shape) and when it succeeds (so the same
+// value can be marshaled again).
+func TestSerde_Marshal_LeavesInputUnchanged(t *testing.T) {
+	s, err := Parse([]byte(`{"type":"record","name":"Root","fields":[
+		{"name":"a","type":["null",{"type":"record","name":"R","fields":[{"name":"x","type":"int"}]}]},
+		{"name":"m","type":{"type":"map","values":["null",{"type":"enum","name":"E","symbols":["A","B"]},{"type":"array","items":"int"}]}},
+		{"name":"n","type":{"type":"map","values":["null","E",{"type":"array","items":"int"}]}},
+		{"name":"c","type":"int"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := func(c any) opencdc.StructuredData {
+		return opencdc.StructuredData{
+			"a": map[string]any{"x": int32(1)},
+			// One key per map, so the encoding is deterministic.
+			"m": map[string]any{"k": "B"},
+			"n": map[string]any{"l": []any{int32(1)}},
+			"c": c,
+		}
+	}
+
+	// The union values are fine, the codec fails on c.
+	bad := value("not an int")
+	if _, err := s.Marshal(bad); err == nil {
+		t.Fatal("want a codec error")
+	}
+	if diff := cmp.Diff(value("not an int"), bad); diff != "" {
+		t.Fatalf("failed marshal changed its input (-before +after):\n%s", diff)
+	}
+
+	good := value(int32(2))
+	b1, err := s.Marshal(good)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diff := cmp.Diff(value(int32(2)), good); diff != "" {
+		t.Fatalf("marshal changed its input (-before +after):\n%s", diff)
+	}
+	b2, err := s.Marshal(good)
+	if err != nil {
+		t.Fatalf("second marshal of the same value: %v", err)
+	}
+	if !bytes.Equal(b1, b2) {
+		t.Fatal("second marshal of the same value encoded differently")
+	}
+}
+
+func TestIsTrivialUnion(t *testing.T) {
+	testCases := []struct {
+		union string
+		want  bool
+	}{
+		{`["null","string"]`, true},
+		{`["long","null"]`, true},
+		{`["null",{"type":"long","logicalType":"timestamp-millis"}]`, true},
+		{`["null",{"type":"bytes","logicalType":"decimal","precision":4,"scale":2}]`, true},
+		{`["null","string","int"]`, false},
+		{`["string","int"]`, false},
+		{`["null",{"type":"enum","name":"E","symbols":["A"]}]`, false},
+		{`["null",{"type":"fixed","name":"F","size":2}]`, false},
+		{`["null",{"type":"array","items":"int"}]`, false},
+		{`["null",{"type":"map","values":"int"}]`, false},
+		{`["null",{"type":"record","name":"R","fields":[]}]`, false},
+	}
+	for _, tc := range testCases {
+		s, err := Parse([]byte(`{"type":"record","name":"Root","fields":[{"name":"f","type":` + tc.union + `}]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		us, ok := s.schema.(*avro.RecordSchema).Fields()[0].Type().(*avro.UnionSchema)
+		if !ok {
+			t.Fatalf("%s: not a union", tc.union)
+		}
+		if got := isTrivialUnion(us); got != tc.want {
+			t.Errorf("%s: isTrivialUnion = %v, want %v", tc.union, got, tc.want)
+		}
+		if s.unionResolver.wrapsUnions == tc.want {
+			t.Errorf("%s: wrapsUnions = %v, want %v", tc.union, s.unionResolver.wrapsUnions, !tc.want)
+		}
 	}
 }
