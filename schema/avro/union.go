@@ -27,6 +27,10 @@ import (
 // name for array values.
 const avroArrayType = "array"
 
+// avroMapType is the Avro type name of a map, used as the union branch name
+// for map values.
+const avroMapType = "map"
+
 // unionResolver provides hooks before marshaling and after unmarshaling a value
 // with an Avro schema, which make sure that values under the schema type Union
 // are in the correct shape (see https://github.com/hamba/avro#unions --
@@ -43,7 +47,22 @@ type unionResolver struct {
 	arrayUnionPaths []path
 	// nullUnionPaths are all the paths to nullable fields within a schema.
 	nullUnionPaths []path
-	resolver       *avro.TypeResolver
+	// wrappedNullUnions are the nullable unions whose non-null branch the
+	// codec only encodes from its named form ({"branch": value}). See
+	// beforeMarshalNullUnionSubstitutions.
+	wrappedNullUnions []wrappedNullUnion
+	resolver          *avro.TypeResolver
+}
+
+// wrappedNullUnion is a nullable union, ["null", T], where T is a record,
+// map, enum or fixed. The codec decodes a value of T into its named form,
+// which AfterUnmarshal unwraps into the bare value, but it cannot encode the
+// bare value: it resolves a bare union value by its Go type, and a
+// map[string]any, a string or a byte array does not identify T.
+type wrappedNullUnion struct {
+	parent path        // path to the value that holds the union, as in nullUnionPaths
+	branch avro.Schema // T, with references resolved
+	name   string      // the codec's name for T: the full name, or "map"
 }
 
 // newUnionResolver takes a schema and extracts the paths to all maps and arrays
@@ -54,6 +73,7 @@ func newUnionResolver(schema avro.Schema) unionResolver {
 	var mapUnionPaths []path
 	var arrayUnionPaths []path
 	var nullUnionPaths []path
+	var wrappedNullUnions []wrappedNullUnion
 	// traverse the schema and extract paths to all maps and arrays with a union
 	// as the value type
 	traverseSchema(schema, func(p path) {
@@ -73,14 +93,42 @@ func newUnionResolver(schema avro.Schema) unionResolver {
 			pCopy := make(path, len(p)-1)
 			copy(pCopy, p[:len(p)-1])
 			nullUnionPaths = append(nullUnionPaths, pCopy)
+			if us, ok := p[len(p)-1].schema.(*avro.UnionSchema); ok {
+				if branch, name, ok := wrappedNullUnionBranch(us); ok {
+					wrappedNullUnions = append(wrappedNullUnions, wrappedNullUnion{parent: pCopy, branch: branch, name: name})
+				}
+			}
 		}
 	})
 	return unionResolver{
-		mapUnionPaths:   mapUnionPaths,
-		arrayUnionPaths: arrayUnionPaths,
-		nullUnionPaths:  nullUnionPaths,
-		resolver:        avro.NewTypeResolver(),
+		mapUnionPaths:     mapUnionPaths,
+		arrayUnionPaths:   arrayUnionPaths,
+		nullUnionPaths:    nullUnionPaths,
+		wrappedNullUnions: wrappedNullUnions,
+		resolver:          avro.NewTypeResolver(),
 	}
+}
+
+// wrappedNullUnionBranch returns the non-null branch of the nullable union
+// us and the codec's name for it, if values of that branch need to be
+// wrapped before encoding.
+func wrappedNullUnionBranch(us *avro.UnionSchema) (avro.Schema, string, bool) {
+	for _, t := range us.Types() {
+		if ref, ok := t.(*avro.RefSchema); ok {
+			t = ref.Schema()
+		}
+		switch t := t.(type) {
+		case *avro.RecordSchema:
+			return t, t.FullName(), true
+		case *avro.EnumSchema:
+			return t, t.FullName(), true
+		case *avro.FixedSchema:
+			return t, t.FullName(), true
+		case *avro.MapSchema:
+			return t, avroMapType, true
+		}
+	}
+	return nil, "", false
 }
 
 // AfterUnmarshal traverses the input value 'val' using the schema and finds all
@@ -299,7 +347,7 @@ func (r unionResolver) substitute(parentMap map[string]any, name string) (substi
 // single key that contains the name of the type. This function takes that value
 // (e.g. "foo") and hoists it into a map (e.g. map[string]any{"string":"foo"}).
 func (r unionResolver) BeforeMarshal(val any) error {
-	if len(r.mapUnionPaths) == 0 && len(r.arrayUnionPaths) == 0 {
+	if len(r.mapUnionPaths) == 0 && len(r.arrayUnionPaths) == 0 && len(r.wrappedNullUnions) == 0 {
 		return nil // shortcut
 	}
 
@@ -308,6 +356,10 @@ func (r unionResolver) BeforeMarshal(val any) error {
 		return err
 	}
 	substitutions, err = r.beforeMarshalArraySubstitutions(val, substitutions)
+	if err != nil {
+		return err
+	}
+	substitutions, err = r.beforeMarshalNullUnionSubstitutions(val, substitutions)
 	if err != nil {
 		return err
 	}
@@ -415,13 +467,236 @@ func (r unionResolver) beforeMarshalArraySubstitutions(val any, substitutions []
 	return substitutions, nil
 }
 
+// beforeMarshalNullUnionSubstitutions is the reverse of
+// afterUnmarshalNullUnionSubstitutions for the unions in wrappedNullUnions:
+// it wraps each bare non-nil value v into {name: v}, so that a value
+// Unmarshal returned encodes again with the same schema
+// (ConduitIO/conduit-commons#306).
+//
+// Values already in the named form are left alone, so callers that build
+// that form themselves keep working. For an enum or fixed branch a map is
+// always the named form. For a record or map branch, see classify: a value
+// that fits only one reading gets that reading, and a value that fits both
+// is an error, because picking either could silently write the wrong data.
+func (r unionResolver) beforeMarshalNullUnionSubstitutions(val any, substitutions []substitution) ([]substitution, error) {
+	for _, u := range r.wrappedNullUnions {
+		var parents []map[string]any
+		err := traverseValue(val, u.parent, false, func(v any) {
+			switch v := v.(type) {
+			case map[string]any:
+				parents = append(parents, v)
+			case opencdc.StructuredData:
+				parents = append(parents, v)
+			case *map[string]any:
+				parents = append(parents, *v)
+			case *opencdc.StructuredData:
+				parents = append(parents, *v)
+			}
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		field := u.parent[len(u.parent)-1].field
+		for _, parent := range parents {
+			if field != nil {
+				sub, err := u.wrap(parent, field.Name())
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", field.Name(), err)
+				}
+				if sub != nil {
+					substitutions = append(substitutions, sub)
+				}
+				continue
+			}
+			// The union is the value type of a map: wrap every value.
+			for key := range parent {
+				sub, err := u.wrap(parent, key)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %w", key, err)
+				}
+				if sub != nil {
+					substitutions = append(substitutions, sub)
+				}
+			}
+		}
+	}
+	return substitutions, nil
+}
+
+// wrap returns the substitution that puts parent[key] into the named form,
+// or nil if it is nil or already in that form.
+func (u wrappedNullUnion) wrap(parent map[string]any, key string) (substitution, error) {
+	v, ok := parent[key]
+	if !ok || v == nil {
+		return nil, nil //nolint:nilnil // no substitution needed
+	}
+	named, err := u.classify(v)
+	if err != nil || named {
+		return nil, err
+	}
+	return mapSubstitution{m: parent, key: key, val: map[string]any{u.name: v}}, nil
+}
+
+// classify reports whether v is already in the named form ({name: value})
+// rather than a bare value of the branch.
+//
+// For an enum or fixed branch a bare value is never a map, so any map is the
+// named form. For a record or map branch both readings are maps, and v is
+// read as:
+//   - named, if it has one entry, keyed by the branch name, whose value
+//     fits the branch (for a record: a map whose keys are all fields);
+//   - bare, if it fits the branch itself (for a record: all keys are fields
+//     and each field's value fits its type; for a map: every value fits the
+//     map's value type);
+//   - an error if it fits both, for example a record R with a single field
+//     also named R that holds a record or map. Guessing either reading could
+//     write the wrong data (invariant 6).
+//
+// A value that fits neither is left bare, and the codec reports the
+// mismatch.
+func (u wrappedNullUnion) classify(v any) (bool, error) {
+	m, ok := asMap(v)
+	if !ok {
+		return false, nil
+	}
+	switch u.branch.(type) {
+	case *avro.RecordSchema, *avro.MapSchema:
+	default:
+		return true, nil
+	}
+	named := false
+	if len(m) == 1 {
+		if inner, ok := m[u.name]; ok {
+			named = fitsSchema(u.branch, inner)
+		}
+	}
+	bare := fitsSchema(u.branch, v)
+	if named && bare {
+		return false, fmt.Errorf(
+			"value %v of union branch %s is ambiguous: it reads both as the codec's named form {%q: value} "+
+				"and as a bare value, and the schema cannot tell them apart: %w", v, u.name, u.name, ErrSchemaValueMismatch,
+		)
+	}
+	return named, nil
+}
+
+// fitsSchema reports whether v has the shape of a value of s, in the form
+// Marshal accepts. It is only used to tell the named form of a union value
+// from a bare one, so it checks structure, not every primitive type: a
+// record must have exactly its fields (every field without a default, and
+// no others), a map's values and an array's items must fit, and anything
+// that is not a record, map, array or union must not be a map or a list.
+func fitsSchema(s avro.Schema, v any) bool {
+	if ref, ok := s.(*avro.RefSchema); ok {
+		s = ref.Schema()
+	}
+	switch s := s.(type) {
+	case *avro.RecordSchema:
+		return fitsRecord(s, v)
+	case *avro.MapSchema:
+		m, ok := asMap(v)
+		if !ok {
+			return false
+		}
+		for _, mv := range m {
+			if !fitsSchema(s.Values(), mv) {
+				return false
+			}
+		}
+		return true
+	case *avro.ArraySchema:
+		a, ok := v.([]any)
+		if !ok {
+			_, isMap := asMap(v)
+			return !isMap // a typed slice
+		}
+		for _, item := range a {
+			if !fitsSchema(s.Items(), item) {
+				return false
+			}
+		}
+		return true
+	case *avro.UnionSchema:
+		return fitsUnion(s, v)
+	case *avro.NullSchema:
+		return v == nil
+	}
+	_, isMap := asMap(v)
+	_, isList := v.([]any)
+	return !isMap && !isList
+}
+
+func fitsRecord(s *avro.RecordSchema, v any) bool {
+	m, ok := asMap(v)
+	if !ok {
+		return false
+	}
+	for k := range m {
+		if recordField(s, k) == nil {
+			return false
+		}
+	}
+	for _, f := range s.Fields() {
+		fv, ok := m[f.Name()]
+		if !ok {
+			if !f.HasDefault() {
+				return false
+			}
+			continue
+		}
+		if !fitsSchema(f.Type(), fv) {
+			return false
+		}
+	}
+	return true
+}
+
+func fitsUnion(s *avro.UnionSchema, v any) bool {
+	for _, t := range s.Types() {
+		if fitsSchema(t, v) {
+			return true
+		}
+	}
+	// The named form of one of the branches.
+	m, ok := asMap(v)
+	if !ok || len(m) != 1 {
+		return false
+	}
+	for name, inner := range m {
+		if t, i := s.Types().Get(name); i >= 0 {
+			return fitsSchema(t, inner)
+		}
+	}
+	return false
+}
+
+func recordField(s *avro.RecordSchema, name string) *avro.Field {
+	for _, f := range s.Fields() {
+		if f.Name() == name {
+			return f
+		}
+	}
+	return nil
+}
+
+func asMap(v any) (map[string]any, bool) {
+	switch v := v.(type) {
+	case map[string]any:
+		return v, true
+	case opencdc.StructuredData:
+		return v, true
+	}
+	return nil, false
+}
+
 func (r unionResolver) resolveNameForType(v any, us *avro.UnionSchema) (string, error) {
 	var names []string
 
 	t := reflect2.TypeOf(v)
 	switch t.Kind() { //nolint:exhaustive // some types are not supported
 	case reflect.Map:
-		names = []string{"map"}
+		names = []string{avroMapType}
 	case reflect.Slice:
 		if !t.Type1().Elem().AssignableTo(byteType) { // []byte is handled differently
 			names = []string{avroArrayType}

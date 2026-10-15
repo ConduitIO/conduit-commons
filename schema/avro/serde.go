@@ -52,8 +52,16 @@ func newEncodeAPI() avro.API {
 // Limitations:
 // - Map keys need to be of type string,
 // - Array values need to be of type uint8 (byte).
-func (s *Serde) Marshal(v any) ([]byte, error) {
-	err := s.unionResolver.BeforeMarshal(v)
+func (s *Serde) Marshal(v any) (_ []byte, err error) {
+	// The codec panics on some values that do not fit the schema (seen with
+	// a recursive nullable record). A panic here would take down the whole
+	// pipeline process; an error fails only the record.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("could not marshal into avro: %w: %v", ErrCodecPanic, r)
+		}
+	}()
+	err = s.unionResolver.BeforeMarshal(v)
 	if err != nil {
 		return nil, err
 	}
