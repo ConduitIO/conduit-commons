@@ -58,6 +58,9 @@ type DB struct {
 	// and those of them whose commit then failed. See AbandonedWrites.
 	abandoned       atomic.Uint64
 	abandonedFailed atomic.Uint64
+	// betweenStatsLoads runs between AbandonedWrites' two loads. Tests use
+	// it to land a write in that window; it is nil otherwise.
+	betweenStatsLoads func()
 }
 
 // AbandonedWriteStats counts writes whose caller stopped waiting
@@ -76,9 +79,17 @@ type AbandonedWriteStats struct {
 // AbandonedWrites returns the abandoned-write counters. Each failure is
 // also logged at error level, because no caller is left to see it.
 func (d *DB) AbandonedWrites() AbandonedWriteStats {
+	// Load Failed first. Every failure is counted after its write was
+	// permanently counted as abandoned, so Abandoned read afterwards is at
+	// least Failed. Loading in the other order lets a write be abandoned
+	// and fail between the two loads, and the reader sees Failed > Abandoned.
+	failed := d.abandonedFailed.Load()
+	if d.betweenStatsLoads != nil {
+		d.betweenStatsLoads()
+	}
 	return AbandonedWriteStats{
 		Abandoned: d.abandoned.Load(),
-		Failed:    d.abandonedFailed.Load(),
+		Failed:    failed,
 	}
 }
 

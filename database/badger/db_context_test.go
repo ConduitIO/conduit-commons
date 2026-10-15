@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -401,8 +402,18 @@ func (b *syncBuffer) String() string {
 // abandoned-write log and counters. Never both, never neither.
 func TestDB_Set_HandoffReportsEachOutcomeOnce(t *testing.T) {
 	is := is.New(t)
-	const writes = 2000
-	const secret = "VALUE-MUST-NOT-BE-LOGGED"
+	// The race needs Set and the commit goroutine on different threads.
+	// With GOMAXPROCS=1 one side nearly always wins and some outcomes are
+	// never produced.
+	if runtime.GOMAXPROCS(0) < 2 {
+		prev := runtime.GOMAXPROCS(2)
+		t.Cleanup(func() { runtime.GOMAXPROCS(prev) })
+	}
+	const (
+		writesPerRound = 2000
+		maxRounds      = 20
+		secret         = "VALUE-MUST-NOT-BE-LOGGED"
+	)
 
 	var logs syncBuffer
 	path := filepath.Join(t.TempDir(), "badger.db")
@@ -424,43 +435,91 @@ func TestDB_Set_HandoffReportsEachOutcomeOnce(t *testing.T) {
 		return txn.Commit()
 	}
 
-	var delivered, abandoned, abandonedFailing int
-	for i := 0; i < writes; i++ {
-		ctx, cancel := context.WithCancel(context.Background())
-		fail := i%2 == 1
-		cur.Store(&current{cancel: cancel, fail: fail})
+	// Run rounds until every one of the four outcomes has happened at least
+	// once, so the counts below test all of them.
+	var writes, deliveredOK, deliveredFailing, abandonedOK, abandonedFailing int
+	allSeen := func() bool {
+		return deliveredOK > 0 && deliveredFailing > 0 && abandonedOK > 0 && abandonedFailing > 0
+	}
+	for round := 0; round < maxRounds && !allSeen(); round++ {
+		for i := 0; i < writesPerRound; i++ {
+			ctx, cancel := context.WithCancel(context.Background())
+			fail := i%2 == 1
+			cur.Store(&current{cancel: cancel, fail: fail})
 
-		err := db.Set(ctx, fmt.Sprintf("k%d", i), []byte(secret))
-		switch {
-		case errors.Is(err, ErrWriteAbandoned):
-			abandoned++
-			if fail {
+			err := db.Set(ctx, fmt.Sprintf("k%d-%d", round, i), []byte(secret))
+			writes++
+			switch {
+			case errors.Is(err, ErrWriteAbandoned) && fail:
 				abandonedFailing++
+			case errors.Is(err, ErrWriteAbandoned):
+				abandonedOK++
+			case fail:
+				deliveredFailing++
+				is.True(errors.Is(err, errCommit)) // the caller got the real failure
+			default:
+				deliveredOK++
+				is.NoErr(err)
 			}
-		case fail:
-			delivered++
-			is.True(errors.Is(err, errCommit)) // the caller got the real failure
-		default:
-			delivered++
-			is.NoErr(err)
+			cancel()
 		}
-		cancel()
 	}
 	is.NoErr(db.Close()) // waits for every abandoned write to report
 
-	t.Logf("delivered %d, abandoned %d (%d failing)", delivered, abandoned, abandonedFailing)
-	if abandoned == 0 || delivered == 0 {
-		t.Fatalf("the race never went both ways (delivered %d, abandoned %d); the test proves nothing", delivered, abandoned)
+	t.Logf("%d writes: delivered %d ok + %d failing, abandoned %d ok + %d failing",
+		writes, deliveredOK, deliveredFailing, abandonedOK, abandonedFailing)
+	if !allSeen() {
+		t.Fatalf("not every outcome happened in %d rounds; the test proves nothing", maxRounds)
 	}
-	is.Equal(delivered+abandoned, writes)
+	abandoned := abandonedOK + abandonedFailing
+	is.Equal(deliveredOK+deliveredFailing+abandoned, writes)
 
 	stats := db.AbandonedWrites()
 	out := logs.String()
-	failedLines := strings.Count(out, "abandoned write failed")
-	committedLines := strings.Count(out, "abandoned write committed")
 	is.Equal(stats.Abandoned, uint64(abandoned))
 	is.Equal(stats.Failed, uint64(abandonedFailing))
-	is.Equal(failedLines, abandonedFailing)
-	is.Equal(committedLines, abandoned-abandonedFailing)
+	is.Equal(strings.Count(out, "abandoned write failed"), abandonedFailing)
+	is.Equal(strings.Count(out, "abandoned write committed"), abandonedOK)
 	is.True(!strings.Contains(out, secret)) // values are never logged
+}
+
+// A write that is abandoned and then fails between AbandonedWrites' two
+// loads must not make the reader see Failed > Abandoned. The hook lands
+// exactly that write in the window, so the wrong load order fails every
+// time.
+func TestDB_AbandonedWrites_WriteBetweenLoads(t *testing.T) {
+	is := is.New(t)
+	db, _ := newTestDB(t)
+	t.Cleanup(func() { is.NoErr(db.Close()) })
+
+	release := make(chan struct{})
+	var cancel context.CancelFunc
+	db.commit = func(*badger.Txn) error {
+		cancel()
+		<-release // fail only after Set has given up
+		return errors.New("injected commit failure")
+	}
+	db.betweenStatsLoads = func() {
+		var ctx context.Context
+		ctx, cancel = context.WithCancel(context.Background())
+		err := db.Set(ctx, "k", []byte("v"))
+		if !errors.Is(err, ErrWriteAbandoned) {
+			t.Errorf("got %v, want ErrWriteAbandoned", err)
+		}
+		close(release)
+		deadline := time.Now().Add(returnBound)
+		for db.abandonedFailed.Load() == 0 {
+			if time.Now().After(deadline) {
+				t.Error("abandoned write never reported its failure")
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	got := db.AbandonedWrites()
+	db.betweenStatsLoads = nil
+	t.Logf("read %+v", got)
+	is.True(got.Failed <= got.Abandoned)
+	is.Equal(db.AbandonedWrites(), AbandonedWriteStats{Abandoned: 1, Failed: 1})
 }
