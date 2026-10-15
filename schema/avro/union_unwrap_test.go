@@ -66,11 +66,14 @@ func TestSerde_Unmarshal_NestedUnionsKeepAllData(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			sch := `{"type":"record","name":"r","fields":[{"name":"f","type":` + tc.field + `}]}`
-			b, err := avro.Config{}.Freeze().Marshal(avro.MustParse(sch), map[string]any{"f": tc.codec})
+			s, err := Parse([]byte(sch))
 			if err != nil {
 				t.Fatal(err)
 			}
-			s, err := Parse([]byte(sch))
+			// Encode with a cold codec config, in the codec's own value
+			// form, using the schema Parse built (no package-level parse,
+			// #321).
+			b, err := avro.Config{}.Freeze().Marshal(s.schema, map[string]any{"f": tc.codec})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -119,7 +122,13 @@ func checkUnionShapes(t *testing.T, seed uint64, i int) {
 	text := `{"type":"record","name":"` + g.next() + `","fields":[{"name":"f","type":` + f.json + `}]}`
 	value := g.value(f)
 
-	sch := avro.MustParse(text)
+	s, err := Parse([]byte(text))
+	if err != nil {
+		t.Fatalf("seed %d: parse: %v", seed, err)
+	}
+	// The codec's own encoding and decoding, with a cold config and the
+	// schema Parse built (no package-level parse, #321).
+	sch := s.schema
 	api := avro.Config{}.Freeze()
 	encoded, err := api.Marshal(sch, map[string]any{"f": value})
 	if err != nil {
@@ -130,10 +139,6 @@ func checkUnionShapes(t *testing.T, seed uint64, i int) {
 		t.Fatalf("seed %d: codec decode: %v", seed, err)
 	}
 
-	s, err := Parse([]byte(text))
-	if err != nil {
-		t.Fatalf("seed %d: parse: %v", seed, err)
-	}
 	var got opencdc.StructuredData
 	if err := s.Unmarshal(encoded, &got); err != nil {
 		t.Fatalf("seed %d: unmarshal: %v\nschema %s\nvalue  %v", seed, err, text, value)
