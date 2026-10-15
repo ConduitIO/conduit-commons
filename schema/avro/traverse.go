@@ -15,12 +15,9 @@
 package avro
 
 import (
-	"errors"
 	"fmt"
-	"reflect"
 	"sort"
 
-	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/iskorotkov/avro/v2"
 )
 
@@ -131,113 +128,4 @@ func sortFn(p path) {
 			return schemas[i].String() < schemas[j].String()
 		})
 	}
-}
-
-// traverseValue is a utility to traverse val down to the path and call fn with
-// all values found at the end of the path. If hasEncodedUnions is set to true,
-// any map and array with a union type is expected to contain a map[string]any
-// with a single key representing the name of the type it contains
-// (e.g. {"int": 1}).
-// If the value structure does not match the path p, traverseValue returns an
-// error.
-//
-//nolint:gocognit,funlen // need to switch on avro type and have a case for each type
-func traverseValue(val any, p path, hasEncodedUnions bool, fn func(v any)) error {
-	var traverse func(any, int) error
-	traverse = func(val any, index int) error {
-		if index == len(p)-1 {
-			// reached the end of the path, call fn
-			fn(val)
-			return nil
-		}
-		if val == nil {
-			return nil // can't traverse further, not an error though
-		}
-		switch l := p[index]; l.schema.Type() { //nolint:exhaustive // some types are not supported
-		case avro.Record:
-			switch val := val.(type) {
-			case map[string]any:
-				return traverse(val[l.field.Name()], index+1)
-			case opencdc.StructuredData:
-				return traverse(val[l.field.Name()], index+1)
-			case *map[string]any:
-				return traverse(*val, index) // traverse value
-			case *opencdc.StructuredData:
-				return traverse(*val, index) // traverse value
-			}
-			return newUnexpectedTypeError(avro.Record, map[string]any{}, val)
-		case avro.Array:
-			valArr, ok := val.([]any)
-			if !ok {
-				return newUnexpectedTypeError(avro.Array, []any{}, val)
-			}
-			for _, item := range valArr {
-				if err := traverse(item, index+1); err != nil {
-					return err
-				}
-			}
-			return nil
-		case avro.Map:
-			valMap, ok := val.(map[string]any)
-			if !ok {
-				return newUnexpectedTypeError(avro.Map, map[string]any{}, val)
-			}
-			for _, v := range valMap {
-				if err := traverse(v, index+1); err != nil {
-					return err
-				}
-			}
-			return nil
-		case avro.Ref:
-			// ignore ref and go deeper
-			return traverse(val, index+1)
-		case avro.Union:
-			if hasEncodedUnions && index > 0 &&
-				(p[index-1].schema.Type() == avro.Map || p[index-1].schema.Type() == avro.Array) {
-				// it's a union value encoded as a map, traverse it
-				valMap, ok := val.(map[string]any)
-				if !ok {
-					return newUnexpectedTypeError(avro.Union, map[string]any{}, val)
-				}
-				if len(valMap) != 1 {
-					return fmt.Errorf("expected single value encoded as a map, got %d elements: %w", len(valMap), ErrSchemaValueMismatch)
-				}
-				for _, v := range valMap {
-					return traverse(v, index+1) // there's only one value, return
-				}
-			}
-
-			// values are encoded normally, skip union
-			err := traverse(val, index+1)
-			var uterr *unexpectedTypeError
-			if errors.As(err, &uterr) {
-				// We allow unexpected type errors, we could be traversing a
-				// different branch in the union type that does not have the
-				// same structure.
-				return nil
-			}
-			return err
-		default:
-			return fmt.Errorf("can not traverse deeper in avro type %s: %w", l.schema.Type(), ErrUnsupportedType)
-		}
-	}
-	return traverse(val, 0)
-}
-
-type unexpectedTypeError struct {
-	avroType       avro.Type
-	expectedGoType string
-	actualGoType   string
-}
-
-func newUnexpectedTypeError(avroType avro.Type, expected any, actual any) *unexpectedTypeError {
-	return &unexpectedTypeError{
-		avroType:       avroType,
-		expectedGoType: reflect.TypeOf(expected).String(),
-		actualGoType:   reflect.TypeOf(actual).String(),
-	}
-}
-
-func (e *unexpectedTypeError) Error() string {
-	return fmt.Sprintf("expected Go type %s for avro type %s, got %s", e.expectedGoType, e.avroType, e.actualGoType)
 }
