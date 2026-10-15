@@ -72,7 +72,7 @@ type genType struct {
 	elem    *genType // array items, map values, the non-null branch of a union
 	def     *genType // gRef: the definition it refers to
 
-	alwaysNull bool // gNullUnion: value() always returns nil, see genOptions
+	bare bool // gNullUnion: value() returns a named branch bare, see genOptions
 }
 
 type genField struct {
@@ -141,12 +141,11 @@ func (t *genType) resolved() *genType {
 	return t
 }
 
-// value returns a random value of type t, in the shape Serde.Marshal
-// accepts. A named type (fixed, enum, record) inside a nullable union is
-// passed in the codec's named form ({"name": value}), because the codec
-// resolves a bare union value by its Go type and cannot tell an enum symbol
-// from a string or a fixed from any other byte array. Everything else is
-// passed bare.
+// value returns a random value of type t, in a shape Serde.Marshal
+// accepts. A named type (fixed, enum, record) or a map inside a nullable
+// union is passed in the codec's named form ({"name": value}) unless the
+// union is marked bare, in which case it is passed bare, as Unmarshal
+// returns it.
 func (t *genType) value(r *rand.Rand) any {
 	switch t.kind {
 	case gNull:
@@ -206,12 +205,18 @@ func (t *genType) value(r *rand.Rand) any {
 		}
 		return m
 	case gNullUnion:
-		if t.alwaysNull || r.IntN(3) == 0 {
+		if r.IntN(3) == 0 {
 			return nil
 		}
 		v := t.elem.value(r)
-		if t.elem.resolved().isNamed() {
-			return map[string]any{t.elem.resolved().name: v}
+		if t.bare {
+			return v
+		}
+		switch e := t.elem.resolved(); {
+		case e.isNamed():
+			return map[string]any{e.name: v}
+		case e.kind == gMap:
+			return map[string]any{"map": v}
 		}
 		return v
 	case gRef:
@@ -264,6 +269,12 @@ func genNamedDef(r *rand.Rand, name string) *genType {
 		for _, n := range names[:1+r.IntN(4)] {
 			t.fields = append(t.fields, genField{name: n, typ: genPrimitive(r)})
 		}
+		// Sometimes give the record a field named like the record itself,
+		// holding a map. Its bare value then has the shape of the named
+		// form ({"n0": {...}}), which BeforeMarshal must not misread.
+		if r.IntN(3) == 0 {
+			t.fields = append(t.fields, genField{name: name, typ: &genType{kind: gMap, elem: genPrimitive(r)}})
+		}
 		return t
 	}
 }
@@ -271,12 +282,10 @@ func genNamedDef(r *rand.Rand, name string) *genType {
 // genOptions limit what the generator emits, so a property can leave out a
 // shape with a separately tracked bug instead of failing on it.
 type genOptions struct {
-	// noNullableNamed makes the generator use null for every value of a
-	// nullable union whose branch is a named type. Serde.Unmarshal returns
-	// those values bare, and Serde.Marshal does not accept them bare
-	// (ConduitIO/conduit-commons#306), so a decode-then-encode property
-	// leaves them out until that is fixed.
-	noNullableNamed bool
+	// bareNamed makes the generator pass the value of every nullable named
+	// type or map bare, the way Serde.Unmarshal returns it, instead of in
+	// the codec's named form.
+	bareNamed bool
 }
 
 // genNamedSchema builds a record schema named recName. layoutSeed decides
@@ -305,7 +314,7 @@ func genNamedSchema(recName string, layoutSeed, defSeed uint64, opts genOptions)
 		} else {
 			d := defs[lr.IntN(len(defs))]
 			ref := &genType{kind: gRef, name: d.name, def: d}
-			switch lr.IntN(6) {
+			switch lr.IntN(8) {
 			case 0:
 				ft = ref
 			case 1:
@@ -316,33 +325,34 @@ func genNamedSchema(recName string, layoutSeed, defSeed uint64, opts genOptions)
 				ft = &genType{kind: gArray, elem: &genType{kind: gArray, elem: ref}}
 			case 4:
 				ft = &genType{kind: gMap, elem: &genType{kind: gArray, elem: ref}}
+			case 5:
+				ft = &genType{kind: gNullUnion, elem: &genType{kind: gMap, elem: ref}}
+			case 6:
+				ft = &genType{kind: gMap, elem: &genType{kind: gNullUnion, elem: ref}}
 			default:
 				ft = &genType{kind: gNullUnion, elem: ref}
 			}
 		}
 		root.fields = append(root.fields, genField{name: "u" + strconv.Itoa(j), typ: ft})
 	}
-	if opts.noNullableNamed {
-		disableNullableNamed(root)
+	if opts.bareNamed {
+		setBare(root)
 	}
 	return root
 }
 
-// disableNullableNamed marks every nullable union whose branch is a named
-// type so that value() returns nil for it.
-func disableNullableNamed(t *genType) {
-	switch t.kind { //nolint:exhaustive // only containers hold nullable unions
+// setBare marks every nullable union under t as bare.
+func setBare(t *genType) {
+	switch t.kind { //nolint:exhaustive // only these hold nullable unions
 	case gRecord:
 		for _, f := range t.fields {
-			disableNullableNamed(f.typ)
+			setBare(f.typ)
 		}
 	case gArray, gMap:
-		disableNullableNamed(t.elem)
+		setBare(t.elem)
 	case gNullUnion:
-		if t.elem.resolved().isNamed() {
-			t.alwaysNull = true
-		}
-		disableNullableNamed(t.elem)
+		t.bare = true
+		setBare(t.elem)
 	}
 }
 

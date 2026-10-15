@@ -63,4 +63,8 @@ var (
 	// over after a complete value. The payload was not written with this
 	// schema, or not only with it, so decoding the prefix would drop data.
 	ErrTrailingBytes = errors.New("avro input has bytes left over after the value")
+
+	// ErrCodecPanic is returned by Serde.Marshal when the codec panicked on
+	// the value. The value does not fit the schema.
+	ErrCodecPanic = errors.New("avro codec panicked")
 )
