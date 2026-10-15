@@ -142,7 +142,7 @@ func Parse(text []byte, opts ...Option) (*Serde, error) {
 	// schema could use a name it never defines and silently get whatever
 	// another schema, parsed earlier in the process, defined under that name.
 	// Invariant 6: a schema only ever means what its own text says.
-	schema, err := avro.ParseBytesWithCache(text, "", &avro.SchemaCache{})
+	schema, err := avro.ParseBytesWithCache(text, "", &avro.SchemaCache{}) //nolint:forbidigo // the sanctioned parse: a fresh cache owned by this one schema
 	if err != nil {
 		return nil, fmt.Errorf("could not parse avro schema: %w", err)
 	}
