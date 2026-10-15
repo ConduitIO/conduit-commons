@@ -12,3 +12,12 @@ and [Conduit Processor SDK](https://github.com/conduitio/conduit-processor-sdk).
 
 Check the [Go Reference](https://pkg.go.dev/github.com/conduitio/conduit-commons)
 documentation for more information on the included packages.
+## Property tests
+
+Property tests use [rapid](https://pkg.go.dev/pgregory.net/rapid). Shared
+generators for Avro schemas and values live in
+[`schema/avro/avrotest`](schema/avro/avrotest), which other modules can import
+from their tests. `go test` runs each property 100 times; set `RAPID_CHECKS`
+(or pass `-rapid.checks`) to run more. A failure prints the `-rapid.seed` that
+replays it. The `property-nightly` workflow runs every test whose name
+contains `Property` with `RAPID_CHECKS=20000`.

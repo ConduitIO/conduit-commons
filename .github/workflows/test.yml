@@ -17,4 +17,8 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Test
+        # Property tests (pgregory.net/rapid) run a small, fixed number of
+        # cases here. The nightly property workflow runs many more.
+        env:
+          RAPID_CHECKS: "100"
         run: make test-integration GOTEST_FLAGS="-v -count=1"
