@@ -17,8 +17,10 @@ package badger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,15 +36,24 @@ import (
 // returnBound is how long Set may take to return after its context ends.
 const returnBound = 2 * time.Second
 
-// blockingCommit makes commits wait until release is closed. Only commits
-// for blockKey block; others go straight through. entered is closed when the
-// first blocking commit starts.
+// blockingCommit makes the first commit for blockKey wait until release is
+// closed, then fail with failErr if set. Later commits, and commits for
+// other keys, go straight through, so a test that relies on Set's per-key
+// ordering fails deterministically without it. entered is closed when the
+// blocking commit starts.
 type blockingCommit struct {
 	blockKey string
 	release  chan struct{}
 	entered  chan struct{}
+	failErr  error
 	once     sync.Once
+	unblockO sync.Once
 }
+
+// unblock releases the blocking commit. It is safe to call more than once,
+// so cleanups can call it too and a failed test never leaves Close waiting
+// on a commit that is never released.
+func (b *blockingCommit) unblock() { b.unblockO.Do(func() { close(b.release) }) }
 
 func newBlockingCommit(key string) *blockingCommit {
 	return &blockingCommit{blockKey: key, release: make(chan struct{}), entered: make(chan struct{})}
@@ -51,8 +62,15 @@ func newBlockingCommit(key string) *blockingCommit {
 func (b *blockingCommit) commit(txn *badger.Txn) error {
 	if _, err := txn.Get([]byte(b.blockKey)); err == nil {
 		// txn has a pending write for blockKey (Get sees its own writes)
-		b.once.Do(func() { close(b.entered) })
-		<-b.release
+		first := false
+		b.once.Do(func() { first = true })
+		if first {
+			close(b.entered)
+			<-b.release
+			if b.failErr != nil {
+				return b.failErr
+			}
+		}
 	}
 	return txn.Commit() //nolint:wrapcheck // stands in for (*badger.Txn).Commit
 }
@@ -111,7 +129,7 @@ func TestDB_Set_ReturnsWhenContextEndsDuringCommit(t *testing.T) {
 
 	// The abandoned write is still running; let it finish and check it
 	// committed in full.
-	close(bc.release)
+	bc.unblock()
 	is.NoErr(db.Close())
 
 	db2, err := New(zerolog.Nop(), path)
@@ -128,7 +146,7 @@ func TestDB_Set_DeadlineBoundsBlockedCommit(t *testing.T) {
 	bc := newBlockingCommit("status")
 	db.commit = bc.commit
 	t.Cleanup(func() {
-		close(bc.release)
+		bc.unblock()
 		is.NoErr(db.Close())
 	})
 
@@ -147,7 +165,7 @@ func TestDB_Set_LaterWriteToSameKeyWaitsForAbandonedOne(t *testing.T) {
 	db, _ := newTestDB(t)
 	bc := newBlockingCommit("status")
 	db.commit = bc.commit
-	t.Cleanup(func() { is.NoErr(db.Close()) })
+	t.Cleanup(func() { bc.unblock(); is.NoErr(db.Close()) })
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	res1 := setAsync(ctx1, db, "status", []byte("running"))
@@ -162,7 +180,7 @@ func TestDB_Set_LaterWriteToSameKeyWaitsForAbandonedOne(t *testing.T) {
 		t.Fatalf("second Set returned (%v) while the first write was still running", err)
 	case <-time.After(100 * time.Millisecond):
 	}
-	close(bc.release)
+	bc.unblock()
 	is.NoErr(waitResult(t, res2))
 
 	got, err := db.Get(context.Background(), "status")
@@ -177,7 +195,7 @@ func TestDB_Set_WaitingWriteGivesUpWithoutWriting(t *testing.T) {
 	db, _ := newTestDB(t)
 	bc := newBlockingCommit("status")
 	db.commit = bc.commit
-	t.Cleanup(func() { is.NoErr(db.Close()) })
+	t.Cleanup(func() { bc.unblock(); is.NoErr(db.Close()) })
 
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	res1 := setAsync(ctx1, db, "status", []byte("running"))
@@ -189,7 +207,7 @@ func TestDB_Set_WaitingWriteGivesUpWithoutWriting(t *testing.T) {
 	is.True(errors.Is(err, context.DeadlineExceeded))
 	is.True(!errors.Is(err, ErrWriteAbandoned)) // never started, so nothing to wonder about
 
-	close(bc.release)
+	bc.unblock()
 	is.NoErr(waitResult(t, res1)) // the first write, still waited for, succeeds
 	cancel1()
 
@@ -204,7 +222,7 @@ func TestDB_Set_OtherKeysNotBlocked(t *testing.T) {
 	bc := newBlockingCommit("status")
 	db.commit = bc.commit
 	t.Cleanup(func() {
-		close(bc.release)
+		bc.unblock()
 		is.NoErr(db.Close())
 	})
 
@@ -251,7 +269,7 @@ func TestDB_Close_WaitsForAbandonedWrite(t *testing.T) {
 		t.Fatalf("Close returned (%v) while a write was still running", err)
 	case <-time.After(100 * time.Millisecond):
 	}
-	close(bc.release)
+	bc.unblock()
 	select {
 	case err := <-closed:
 		is.NoErr(err)
@@ -287,4 +305,72 @@ func TestDB_Set_InTransactionUnchanged(t *testing.T) {
 	got, err := db.Get(context.Background(), "k")
 	is.NoErr(err)
 	is.Equal(string(got), "v")
+}
+
+// flipCtx is a context that is already done, but whose Err reports nil on
+// the first call. It reaches the key lock with an ended context, which is
+// the window the re-check after lock closes.
+type flipCtx struct {
+	context.Context //nolint:containedctx // wraps a context to change what Err reports
+	calls           atomic.Int32
+}
+
+func (c *flipCtx) Err() error {
+	if c.calls.Add(1) == 1 {
+		return nil
+	}
+	return context.Canceled
+}
+
+func TestDB_Set_ContextEndedAtLockWritesNothing(t *testing.T) {
+	is := is.New(t)
+	db, _ := newTestDB(t)
+	t.Cleanup(func() { is.NoErr(db.Close()) })
+
+	// The lock is free, so lock's select picks it or ctx.Done at random.
+	// Either way nothing may be written. 64 tries miss a broken re-check
+	// with probability 2^-64.
+	for i := 0; i < 64; i++ {
+		done, cancel := context.WithCancel(context.Background())
+		cancel()
+		ctx := &flipCtx{Context: done}
+		key := fmt.Sprintf("k%d", i)
+
+		err := db.Set(ctx, key, []byte("v"))
+		is.True(errors.Is(err, context.Canceled))
+		is.True(!errors.Is(err, ErrWriteAbandoned))
+
+		_, err = db.Get(context.Background(), key)
+		is.True(errors.Is(err, database.ErrKeyNotExist))
+	}
+}
+
+func TestDB_AbandonedWrites_CountsOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		failErr    error
+		wantFailed uint64
+	}{
+		{name: "commit succeeds", failErr: nil, wantFailed: 0},
+		{name: "commit fails", failErr: errors.New("disk on fire"), wantFailed: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			is := is.New(t)
+			db, _ := newTestDB(t)
+			bc := newBlockingCommit("status")
+			bc.failErr = tc.failErr
+			db.commit = bc.commit
+
+			ctx, cancel := context.WithCancel(context.Background())
+			res := setAsync(ctx, db, "status", []byte("running"))
+			waitClosed(t, bc.entered, "the commit to start")
+			cancel()
+			is.True(errors.Is(waitResult(t, res), ErrWriteAbandoned))
+			is.Equal(db.AbandonedWrites(), AbandonedWriteStats{Abandoned: 1})
+
+			bc.unblock()
+			is.NoErr(db.Close()) // waits for the abandoned write
+			is.Equal(db.AbandonedWrites(), AbandonedWriteStats{Abandoned: 1, Failed: tc.wantFailed})
+		})
+	}
 }
