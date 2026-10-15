@@ -15,20 +15,24 @@
 package avro
 
 import (
-	"fmt"
-	"reflect"
-
 	"github.com/iskorotkov/avro/v2"
-	"github.com/modern-go/reflect2"
 )
+
+// avroArrayType is the Avro type name of an array, used as the union branch
+// name for array values.
+const avroArrayType = "array"
+
+// avroMapType is the Avro type name of a map, used as the union branch name
+// for map values.
+const avroMapType = "map"
 
 // unionResolver provides hooks before marshaling and after unmarshaling a value
 // with an Avro schema, which make sure that values under the schema type Union
 // are in the correct shape (see https://github.com/hamba/avro#unions --
 // github.com/iskorotkov/avro/v2 is a fork and shares this union
-// representation unchanged).
-// NB: It currently supports union types nested in maps, but not nested in
-// slices. For example, hooks will not work for values like []any{[]any{"foo"}}.
+// representation unchanged). AfterUnmarshal (union_unwrap.go) and
+// BeforeMarshal (union_wrap.go) walk the schema together with the value and
+// are each other's inverse.
 type unionResolver struct {
 	// mapUnionPaths are all the paths to map fields within a schema,
 	// where value types are union types
@@ -38,23 +42,30 @@ type unionResolver struct {
 	arrayUnionPaths []path
 	// nullUnionPaths are all the paths to nullable fields within a schema.
 	nullUnionPaths []path
-	resolver       *avro.TypeResolver
-	// schema is the schema the resolver was built for. AfterUnmarshal walks
-	// it alongside the decoded value.
+	// hasUnion is set if the schema has a union anywhere. BeforeMarshal
+	// checks every union value, not only those AfterUnmarshal unwraps.
+	hasUnion bool
+	resolver *avro.TypeResolver
+	// schema is the schema the resolver was built for. AfterUnmarshal and
+	// BeforeMarshal walk it alongside the value.
 	schema avro.Schema
 }
 
 // newUnionResolver takes a schema and extracts the paths to all maps and arrays
-// with union types. With this information the resolver can traverse the values
-// in BeforeMarshal and AfterUnmarshal directly to the value that needs to be
-// substituted.
+// with union types and to all nullable unions. AfterUnmarshal uses them, and
+// BeforeMarshal uses hasUnion, only to skip schemas in which there is nothing
+// to do.
 func newUnionResolver(schema avro.Schema) (unionResolver, error) {
 	var mapUnionPaths []path
 	var arrayUnionPaths []path
 	var nullUnionPaths []path
+	hasUnion := false
 	// traverse the schema and extract paths to all maps and arrays with a union
 	// as the value type
 	err := traverseSchema(schema, func(p path) {
+		if p[len(p)-1].schema.Type() == avro.Union {
+			hasUnion = true
+		}
 		switch {
 		case isMapUnion(p[len(p)-1].schema):
 			// path points to a map with a union type, copy and store it
@@ -80,160 +91,10 @@ func newUnionResolver(schema avro.Schema) (unionResolver, error) {
 		mapUnionPaths:   mapUnionPaths,
 		arrayUnionPaths: arrayUnionPaths,
 		nullUnionPaths:  nullUnionPaths,
+		hasUnion:        hasUnion,
 		resolver:        avro.NewTypeResolver(),
 		schema:          schema,
 	}, nil
-}
-
-// BeforeMarshal traverses the value using the schema and finds all values that
-// have the Avro type Union. Those values need to be changed to a map with a
-// single key that contains the name of the type. This function takes that value
-// (e.g. "foo") and hoists it into a map (e.g. map[string]any{"string":"foo"}).
-func (r unionResolver) BeforeMarshal(val any) error {
-	if len(r.mapUnionPaths) == 0 && len(r.arrayUnionPaths) == 0 {
-		return nil // shortcut
-	}
-
-	substitutions, err := r.beforeMarshalMapSubstitutions(val, nil)
-	if err != nil {
-		return err
-	}
-	substitutions, err = r.beforeMarshalArraySubstitutions(val, substitutions)
-	if err != nil {
-		return err
-	}
-
-	// We now have a list of substitutions, simply apply them.
-	for _, sub := range substitutions {
-		sub.substitute()
-	}
-	return nil
-}
-
-func (r unionResolver) beforeMarshalMapSubstitutions(val any, substitutions []substitution) ([]substitution, error) {
-	for _, p := range r.mapUnionPaths {
-		mapSchema, ok := p[len(p)-1].schema.(*avro.MapSchema)
-		if !ok {
-			return nil, fmt.Errorf("expected *avro.MapSchema, got %T: %w", p[len(p)-1].schema, ErrSchemaValueMismatch)
-		}
-		unionSchema, ok := mapSchema.Values().(*avro.UnionSchema)
-		if !ok {
-			return nil, fmt.Errorf("expected *avro.UnionSchema, got %T: %w", mapSchema.Values(), ErrSchemaValueMismatch)
-		}
-
-		// first collect all maps that have a union type in the schema
-		var maps []map[string]any
-		err := traverseValue(val, p, false, func(v any) {
-			if mapUnion, ok := v.(map[string]any); ok {
-				maps = append(maps, mapUnion)
-			}
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		// Loop through collected maps and collect all substitutions. We want
-		// to replace all non-nil values in these maps with maps that contain a
-		// single value, the key corresponds to the resolved name.
-		// We don't replace them in the loop, because we want to make sure all
-		// type names can be resolved first.
-		for i, mapUnion := range maps {
-			for k, v := range mapUnion {
-				if v == nil {
-					// do no change nil values
-					continue
-				}
-				valTypeName, err := r.resolveNameForType(v, unionSchema)
-				if err != nil {
-					return nil, err
-				}
-				substitutions = append(substitutions, mapSubstitution{
-					m:   maps[i],
-					key: k,
-					val: map[string]any{valTypeName: v},
-				})
-			}
-		}
-	}
-	return substitutions, nil
-}
-
-func (r unionResolver) beforeMarshalArraySubstitutions(val any, substitutions []substitution) ([]substitution, error) {
-	for _, p := range r.arrayUnionPaths {
-		arraySchema, ok := p[len(p)-1].schema.(*avro.ArraySchema)
-		if !ok {
-			return nil, fmt.Errorf("expected *avro.ArraySchema, got %T: %w", p[len(p)-1].schema, ErrSchemaValueMismatch)
-		}
-		unionSchema, ok := arraySchema.Items().(*avro.UnionSchema)
-		if !ok {
-			return nil, fmt.Errorf("expected *avro.UnionSchema, got %T: %w", arraySchema.Items(), ErrSchemaValueMismatch)
-		}
-
-		// first collect all array that have a union type in the schema
-		var arrays [][]any
-		err := traverseValue(val, p, false, func(v any) {
-			if arrayUnion, ok := v.([]any); ok {
-				arrays = append(arrays, arrayUnion)
-			}
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		// Loop through collected arrays and collect all substitutions. We want
-		// to replace all non-nil values in these arrays with maps that contain a
-		// single value, the key corresponds to the resolved name.
-		// We don't replace them in the loop, because we want to make sure all
-		// type names can be resolved first.
-		for i, arrayUnion := range arrays {
-			for index, v := range arrayUnion {
-				if v == nil {
-					// do no change nil values
-					continue
-				}
-				valTypeName, err := r.resolveNameForType(v, unionSchema)
-				if err != nil {
-					return nil, err
-				}
-				substitutions = append(substitutions, arraySubstitution{
-					a:     arrays[i],
-					index: index,
-					val:   map[string]any{valTypeName: v},
-				})
-			}
-		}
-	}
-	return substitutions, nil
-}
-
-func (r unionResolver) resolveNameForType(v any, us *avro.UnionSchema) (string, error) {
-	var names []string
-
-	t := reflect2.TypeOf(v)
-	switch t.Kind() { //nolint:exhaustive // some types are not supported
-	case reflect.Map:
-		names = []string{"map"}
-	case reflect.Slice:
-		if !t.Type1().Elem().AssignableTo(byteType) { // []byte is handled differently
-			names = []string{"array"}
-			break
-		}
-		fallthrough
-	default:
-		var err error
-		names, err = r.resolver.Name(t)
-		if err != nil {
-			return "", fmt.Errorf("could not resolve type name for %T: %w", v, err)
-		}
-	}
-
-	for _, n := range names {
-		_, pos := us.Types().Get(n)
-		if pos > -1 {
-			return n, nil
-		}
-	}
-	return "", fmt.Errorf("can't resolve %v in union type %v: %w", names, us.String(), ErrSchemaValueMismatch)
 }
 
 func isMapUnion(schema avro.Schema) bool {
