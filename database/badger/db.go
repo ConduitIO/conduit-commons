@@ -19,15 +19,38 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/conduitio/conduit-commons/database"
 	"github.com/dgraph-io/badger/v4"
 	"github.com/rs/zerolog"
 )
 
+// ErrWriteAbandoned is returned (wrapped together with ctx.Err()) by Set when
+// its context ended after the write was handed to badger. Set has stopped
+// waiting, but the write keeps going in the background: it either commits
+// in full or not at all, and the caller cannot know which. See Set.
+var ErrWriteAbandoned = errors.New("badger: stopped waiting for write, it may still complete")
+
 // DB implements the database.DB interface for server persistence.
+//
+// DB is safe for concurrent use.
 type DB struct {
 	db *badger.DB
+
+	// keyLocks orders Set calls (outside a transaction) per key, so a write
+	// abandoned on context cancel can't land after a later write to the same
+	// key. See Set.
+	keyLocks keyLocks
+	// inflight counts Set writes that are still running, including
+	// abandoned ones. Close waits for them. closeMu and closed keep a Set
+	// from adding to inflight once Close has started waiting.
+	inflight sync.WaitGroup
+	closeMu  sync.RWMutex
+	closed   bool
+	// commit commits a transaction. It is txn.Commit, swapped in tests to
+	// simulate a write that blocks.
+	commit func(*badger.Txn) error
 }
 
 var _ database.DB = (*DB)(nil)
@@ -43,7 +66,9 @@ func New(l zerolog.Logger, path string) (*DB, error) {
 	}
 
 	return &DB{
-		db: db,
+		db:       db,
+		keyLocks: keyLocks{m: make(map[string]*keyLock)},
+		commit:   (*badger.Txn).Commit,
 	}, nil
 }
 
@@ -77,8 +102,15 @@ func (d *DB) NewTransaction(ctx context.Context, update bool) (database.Transact
 	return txn, database.ContextWithTransaction(ctx, txn), nil
 }
 
-// Close flushes any pending writes and closes the db.
+// Close waits for Set writes still in flight, including ones whose caller
+// stopped waiting (ErrWriteAbandoned), then flushes pending writes and closes
+// the db. After Close returns, every abandoned write has either committed or
+// failed, so a reopened db shows its final outcome.
 func (d *DB) Close() error {
+	d.closeMu.Lock()
+	d.closed = true
+	d.closeMu.Unlock()
+	d.inflight.Wait()
 	if err := d.db.Close(); err != nil {
 		return fmt.Errorf("failed to close badger db: %w", err)
 	}
@@ -114,26 +146,90 @@ func (d *DB) getWithTxn(txn *badger.Txn, key string) ([]byte, error) {
 	return val, nil
 }
 
-// Set will update a key with a given value and returns an error if anything went wrong.
-func (d *DB) Set(ctx context.Context, key string, value []byte) (err error) {
-	txn := d.getTxn(ctx)
-	if txn == nil {
-		// create new transaction just for this call
-		txn = d.db.NewTransaction(true)
-		defer func() {
-			if err != nil {
-				txn.Discard()
-				return
-			}
-			// transaction is committed only if we exit without an error
-			err = txn.Commit()
-			if err != nil {
-				err = fmt.Errorf("badger: could not commit transaction setting key %q: %w", key, err)
-			}
-		}()
+// Set updates key to value. A nil value deletes the key; to store an empty
+// value use an empty, non-nil slice.
+//
+// If ctx carries a transaction (see NewTransaction), the write is only staged
+// in it, which does not block; the caller's Commit applies it.
+//
+// Otherwise Set writes and commits in its own transaction and honours ctx:
+//
+//   - If ctx ends before the write starts (including while waiting behind an
+//     earlier write to the same key), Set returns ctx.Err() and nothing is
+//     written.
+//   - If ctx ends while the commit is running, Set returns an error that
+//     matches both ErrWriteAbandoned and ctx.Err(). The commit keeps running
+//     in the background and may still succeed. The caller must treat the key
+//     as unknown: either the old value or the new one, never a mix.
+//     Invariant 5: badger commits a transaction atomically, and on a crash
+//     replay drops a transaction whose commit marker was not written, so the
+//     key is never torn.
+//
+// A Set does not start its write while an earlier Set to the same key is
+// still running, abandoned or not; it waits, bounded by its own ctx. So an
+// abandoned write can never land on top of a value written after it. Writes
+// to different keys do not wait for each other. Close waits for abandoned
+// writes to finish.
+func (d *DB) Set(ctx context.Context, key string, value []byte) error {
+	if txn := d.getTxn(ctx); txn != nil {
+		return d.setWithTxn(txn, key, value)
 	}
 
-	return d.setWithTxn(txn, key, value)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("badger: did not set key %q: %w", key, err)
+	}
+	unlock, err := d.keyLocks.lock(ctx, key)
+	if err != nil {
+		return fmt.Errorf("badger: did not set key %q: %w", key, err)
+	}
+
+	d.closeMu.RLock()
+	if d.closed {
+		d.closeMu.RUnlock()
+		unlock()
+		return fmt.Errorf("badger: did not set key %q: %w", key, badger.ErrDBClosed)
+	}
+	d.inflight.Add(1)
+	d.closeMu.RUnlock()
+
+	// The goroutine owns the transaction and the key lock from here on, so
+	// it can finish (or fail) the write after we stop waiting for it.
+	done := make(chan error, 1)
+	go func() {
+		defer d.inflight.Done()
+		defer unlock()
+		done <- d.setAndCommit(key, value)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		select {
+		case err := <-done: // finished at the same moment; report what happened
+			return err
+		default:
+		}
+		return fmt.Errorf("badger: set key %q: %w: %w", key, ErrWriteAbandoned, ctx.Err())
+	}
+}
+
+// setAndCommit writes key in a new transaction and commits it. The
+// transaction is discarded if anything fails, so nothing is half-applied.
+func (d *DB) setAndCommit(key string, value []byte) error {
+	txn := d.db.NewTransaction(true)
+	defer txn.Discard() // no-op after a successful Commit
+	if err := d.setWithTxn(txn, key, value); err != nil {
+		return err
+	}
+	commit := d.commit
+	if commit == nil {
+		commit = (*badger.Txn).Commit
+	}
+	if err := commit(txn); err != nil {
+		return fmt.Errorf("badger: could not commit transaction setting key %q: %w", key, err)
+	}
+	return nil
 }
 
 // setWithTxn will update a key using the provided transaction.
@@ -189,4 +285,52 @@ func (d *DB) getTxn(ctx context.Context) *badger.Txn {
 		return nil
 	}
 	return txn
+}
+
+// keyLocks hands out one lock per key. Entries exist only while a lock is
+// held or waited for, so the map does not grow with the key space.
+type keyLocks struct {
+	mu sync.Mutex
+	m  map[string]*keyLock
+}
+
+type keyLock struct {
+	ch   chan struct{} // capacity 1; holding the lock = a value in ch
+	refs int           // holders plus waiters, guarded by keyLocks.mu
+}
+
+// lock acquires the lock for key, or returns ctx.Err() if ctx ends first.
+// The returned func releases it and must be called exactly once.
+func (k *keyLocks) lock(ctx context.Context, key string) (func(), error) {
+	k.mu.Lock()
+	if k.m == nil {
+		k.m = make(map[string]*keyLock)
+	}
+	l, ok := k.m[key]
+	if !ok {
+		l = &keyLock{ch: make(chan struct{}, 1)}
+		k.m[key] = l
+	}
+	l.refs++
+	k.mu.Unlock()
+
+	select {
+	case l.ch <- struct{}{}:
+		return func() {
+			<-l.ch
+			k.release(key, l)
+		}, nil
+	case <-ctx.Done():
+		k.release(key, l)
+		return nil, ctx.Err()
+	}
+}
+
+func (k *keyLocks) release(key string, l *keyLock) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	l.refs--
+	if l.refs == 0 {
+		delete(k.m, key)
+	}
 }
