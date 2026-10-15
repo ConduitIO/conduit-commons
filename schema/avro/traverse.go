@@ -55,10 +55,11 @@ type (
 func traverseSchema(s avro.Schema, fn func(path)) error {
 	// open holds the record types on the current path.
 	open := make(map[avro.Schema]bool)
-	visited := 0
+	visited, exceeded := 0, false
 	var traverse func(avro.Schema, path)
 	traverse = func(s avro.Schema, p path) {
-		if visited >= maxSchemaTraversal {
+		if visited == maxSchemaTraversal {
+			exceeded = true // this would be visit maxSchemaTraversal+1
 			return
 		}
 		visited++
@@ -100,14 +101,17 @@ func traverseSchema(s avro.Schema, fn func(path)) error {
 		}
 	}
 	traverse(s, nil)
-	if visited >= maxSchemaTraversal {
-		return fmt.Errorf("%w: expanding its types visits more than %d schemas", ErrSchemaTooComplex, maxSchemaTraversal)
+	if exceeded {
+		return fmt.Errorf("%w: expanding its named types visits more than %d schemas "+
+			"(records that refer to each other recursively are expanded once per path, which grows factorially); "+
+			"reduce the number of records that refer to each other, or break a cycle by replacing a reference with "+
+			"a non-recursive type", ErrSchemaTooComplex, maxSchemaTraversal)
 	}
 	return nil
 }
 
-// maxSchemaTraversal is how many schemas traverseSchema visits before it
-// gives up. Every schema in the tree counts once per path it is reached by.
+// maxSchemaTraversal is the most schemas traverseSchema visits; a schema
+// that needs more is rejected. Every schema in the tree counts once per path it is reached by.
 // Real schemas, including large CDC schemas with hundreds of columns, visit
 // a few thousand.
 const maxSchemaTraversal = 100_000
