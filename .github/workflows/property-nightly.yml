@@ -1,0 +1,47 @@
+name: property-nightly
+
+# The long run of the property tests. The normal test job runs every
+# property at a small count (RAPID_CHECKS=100) on every PR. This job runs the
+# same tests with many more cases, and gives each fuzz target over a property
+# a short fuzzing budget, where the extra cost would slow every PR down.
+#
+# A failure prints the rapid seed (-rapid.seed=...) that replays it, or, for
+# a fuzz target, the failing input under testdata/fuzz, uploaded below.
+
+on:
+  schedule:
+    - cron: "40 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  property:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Property tests, long run
+        env:
+          RAPID_CHECKS: "20000"
+          # The seeded property tests that predate rapid read this instead.
+          CONDUIT_PROPERTY_LONG: "1"
+        run: go test -race -count=1 -timeout 45m -run 'Property' ./...
+
+      - name: Fuzz the property fuzz targets
+        run: go test -run '^$' -fuzz '^FuzzSerde_RoundTripManySchemas$' -fuzztime 5m ./schema/avro
+
+      - name: Upload failing fuzz inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-failures
+          path: '**/testdata/fuzz/'
+          if-no-files-found: ignore

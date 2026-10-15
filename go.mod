@@ -20,6 +20,7 @@ require (
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.46.1
+	pgregory.net/rapid v1.3.0
 )
 
 require (
