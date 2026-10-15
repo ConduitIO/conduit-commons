@@ -18,7 +18,6 @@ import (
 	"fmt"
 
 	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func _() {
@@ -114,7 +113,7 @@ func (r Record) ToProto(proto *opencdcv1.Record) error {
 		}
 		err := r.Key.ToProto(proto.Key)
 		if err != nil {
-			return fmt.Errorf("error converting key: %w", err)
+			return wrapProtoError("error converting key", prefixNumberErrorPath(err, fieldKey))
 		}
 	} else {
 		proto.Key = nil
@@ -125,7 +124,7 @@ func (r Record) ToProto(proto *opencdcv1.Record) error {
 	}
 	err := r.Payload.ToProto(proto.Payload)
 	if err != nil {
-		return fmt.Errorf("error converting payload: %w", err)
+		return wrapProtoError("error converting payload", prefixNumberErrorPath(err, fieldPayload))
 	}
 
 	proto.Position = r.Position
@@ -144,7 +143,7 @@ func (c Change) ToProto(proto *opencdcv1.Change) error {
 		}
 		err := c.Before.ToProto(proto.Before)
 		if err != nil {
-			return fmt.Errorf("error converting before: %w", err)
+			return wrapProtoError("error converting before", prefixNumberErrorPath(err, fieldBefore))
 		}
 	} else {
 		proto.Before = nil
@@ -156,7 +155,7 @@ func (c Change) ToProto(proto *opencdcv1.Change) error {
 		}
 		err := c.After.ToProto(proto.After)
 		if err != nil {
-			return fmt.Errorf("error converting after: %w", err)
+			return wrapProtoError("error converting after", prefixNumberErrorPath(err, fieldAfter))
 		}
 	} else {
 		proto.After = nil
@@ -177,15 +176,28 @@ func (d RawData) ToProto(proto *opencdcv1.Data) error {
 }
 
 // ToProto takes data from the receiver and populates the supplied proto object.
+//
+// Every number in a google.protobuf.Struct is a float64. ToProto refuses,
+// instead of rounding, any integer outside [-(2^53-1), 2^53-1] (int, int64,
+// uint, uint64, or an integral json.Number in any notation) with an error that
+// matches ErrIntegerNotRepresentable, and any json.Number that is not a valid
+// JSON number, or a non-integer beyond the float64 range, with an error that
+// matches ErrInvalidNumber. Both errors carry the field path, never the
+// value. When several fields are bad, which one is reported depends on map
+// iteration order. Other values convert exactly as structpb.NewStruct
+// converts them, including its errors; note that structpb's error for a
+// string or key with invalid UTF-8 quotes that string (%q), so it does carry
+// the value. That is pre-existing behavior this change does not alter.
 func (d StructuredData) ToProto(proto *opencdcv1.Data) error {
+	w := newStructWalker(true)
+	data, err := w.structValue(d)
+	if err != nil {
+		return wrapStructuredDataError(err)
+	}
 	protoStructuredData, ok := proto.Data.(*opencdcv1.Data_StructuredData)
 	if !ok {
 		protoStructuredData = &opencdcv1.Data_StructuredData{}
 		proto.Data = protoStructuredData
-	}
-	data, err := structpb.NewStruct(d)
-	if err != nil {
-		return fmt.Errorf("could not convert structured data to proto: %w", err)
 	}
 	protoStructuredData.StructuredData = data
 	return nil

@@ -28,4 +28,15 @@ var (
 	// ErrInvalidProtoDataType is returned when trying to convert a proto data
 	// type to raw or structured data.
 	ErrInvalidProtoDataType = errors.New("invalid proto data type")
+	// ErrIntegerNotRepresentable is matched (errors.Is) by the error ToProto
+	// returns when structured data contains an integer outside
+	// [-(2^53-1), 2^53-1], the range in which a protobuf number (a float64)
+	// identifies exactly one integer. ToProto refuses instead of rounding:
+	// see IntegerNotRepresentableError.
+	ErrIntegerNotRepresentable = errors.New("integer not representable as a protobuf number")
+	// ErrInvalidNumber is matched (errors.Is) by the error ToProto returns for
+	// a json.Number whose literal is not a JSON number (RFC 8259), such as a
+	// hex float or "Infinity". Such literals are never parsed leniently: see
+	// InvalidNumberError.
+	ErrInvalidNumber = errors.New("invalid number")
 )

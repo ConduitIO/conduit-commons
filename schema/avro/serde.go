@@ -15,7 +15,10 @@
 package avro
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"sync"
 
 	"github.com/iskorotkov/avro/v2"
 )
@@ -111,13 +114,54 @@ func (s *Serde) Unmarshal(b []byte, v any) error {
 	if s.maxInputSize > 0 && len(b) > s.maxInputSize {
 		return fmt.Errorf("%w: %d bytes exceeds the %d byte limit", ErrInputTooLarge, len(b), s.maxInputSize)
 	}
-	err := s.decodeAPI.Unmarshal(s.schema, b, v)
+	err := s.decode(b, v)
 	if err != nil {
 		return fmt.Errorf("could not unmarshal from avro: %w", err)
 	}
 	err = s.unionResolver.AfterUnmarshal(v)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+// readerPool holds Readers for decode. A Reader carries the codec
+// configuration it decodes with, so decode sets it on every use.
+var readerPool = sync.Pool{New: func() any { return avro.NewReader(nil, 0) }}
+
+// decode decodes exactly one value of the schema from b into v.
+//
+// It does not use the codec's API.Unmarshal, because that returns nil when
+// the reader hit the end of the input, so a truncated payload decoded
+// without error to a value with nil fields (ConduitIO/conduit-commons#304).
+//
+// Invariant 6 (schema handling never silently mangles data): the decode
+// succeeds only if the value is complete and used every byte of b.
+func (s *Serde) decode(b []byte, v any) error {
+	r := readerPool.Get().(*avro.Reader) //nolint:forcetypeassert // the pool only holds Readers
+	defer func() {
+		r.Reset(nil) // don't keep b alive in the pool
+		r.Error = nil
+		readerPool.Put(r)
+	}()
+	avro.WithReaderConfig(s.decodeAPI)(r)
+	r.Reset(b)
+	r.Error = nil
+
+	r.ReadVal(s.schema, v)
+	if r.Error != nil {
+		if errors.Is(r.Error, io.EOF) || errors.Is(r.Error, io.ErrUnexpectedEOF) {
+			return fmt.Errorf("%w (%d bytes): %w", ErrTruncatedInput, len(b), r.Error)
+		}
+		return r.Error
+	}
+	// Peek sets io.EOF if no byte is left, which is the only good outcome.
+	r.Peek()
+	if r.Error == nil {
+		return fmt.Errorf("%w (%d bytes in total)", ErrTrailingBytes, len(b))
+	}
+	if !errors.Is(r.Error, io.EOF) {
+		return r.Error
 	}
 	return nil
 }
