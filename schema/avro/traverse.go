@@ -45,11 +45,23 @@ type (
 // (ConduitIO/conduit-commons#314). fn still sees the reference itself, but
 // not the types below it, so callers see each recursive type expanded once
 // per path.
-func traverseSchema(s avro.Schema, fn func(path)) {
-	// open holds the named types on the current path.
+//
+// Expanding a type once per path still grows fast when recursive types
+// refer to each other (n mutually recursive records expand to about n!
+// paths), so traverseSchema stops after maxSchemaTraversal schemas and
+// returns ErrSchemaTooComplex. The callers precompute from these paths and
+// walk them on every Marshal, so an unbounded traversal is a denial of
+// service from one schema.
+func traverseSchema(s avro.Schema, fn func(path)) error {
+	// open holds the record types on the current path.
 	open := make(map[avro.Schema]bool)
+	visited := 0
 	var traverse func(avro.Schema, path)
 	traverse = func(s avro.Schema, p path) {
+		if visited >= maxSchemaTraversal {
+			return
+		}
+		visited++
 		p = append(p, leg{s, nil})
 		fn(p)
 
@@ -65,6 +77,13 @@ func traverseSchema(s avro.Schema, fn func(path)) {
 			}
 			traverse(s.Schema(), p)
 		case *avro.RecordSchema:
+			// A record can be reached again inline, not only through a
+			// reference, when a reference led back into the schema that
+			// defines it. Check here too, or the inner visit would clear
+			// the outer one's entry when it returns.
+			if open[s] {
+				return
+			}
 			open[s] = true
 			defer delete(open, s)
 			fields := s.Fields()
@@ -81,7 +100,17 @@ func traverseSchema(s avro.Schema, fn func(path)) {
 		}
 	}
 	traverse(s, nil)
+	if visited >= maxSchemaTraversal {
+		return fmt.Errorf("%w: expanding its types visits more than %d schemas", ErrSchemaTooComplex, maxSchemaTraversal)
+	}
+	return nil
 }
+
+// maxSchemaTraversal is how many schemas traverseSchema visits before it
+// gives up. Every schema in the tree counts once per path it is reached by.
+// Real schemas, including large CDC schemas with hundreds of columns, visit
+// a few thousand.
+const maxSchemaTraversal = 100_000
 
 // sortFn can be passed to traverse to deterministically sort fields in every
 // record and types in every union.

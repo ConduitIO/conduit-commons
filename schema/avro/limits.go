@@ -535,7 +535,7 @@ func WithMaxMapAllocSize(n int) Option {
 // applied unsoundly to just that one field.
 func schemaHasZeroCostContainer(s avro.Schema) bool {
 	found := false
-	traverseSchema(s, func(p path) {
+	err := traverseSchema(s, func(p path) {
 		if found || len(p) == 0 {
 			return
 		}
@@ -550,6 +550,11 @@ func schemaHasZeroCostContainer(s avro.Schema) bool {
 			}
 		}
 	})
+	if err != nil {
+		// Parse rejects such a schema before it gets here. If it did not,
+		// skipping the tightening is the safe answer.
+		return true
+	}
 	return found
 }
 
