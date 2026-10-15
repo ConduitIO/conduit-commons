@@ -68,14 +68,22 @@ func (d StructuredData) Bytes() []byte {
 // depth, so changing the copy never changes d (Invariant 6: fan-out, the
 // clone and split processors, and the engine all rely on that).
 //
-// Every value keeps its Go type: a nested map[string]any stays
-// map[string]any, a nested StructuredData stays StructuredData, and a nil
-// map or slice stays nil. The result is reflect.DeepEqual to d.
+// Every nested value keeps its Go type: a nested map[string]any stays
+// map[string]any, a nested StructuredData stays StructuredData, and a nested
+// nil map or slice stays nil, so the result is reflect.DeepEqual to d. The
+// one exception is d itself: cloning a nil StructuredData returns an empty,
+// non-nil one, as it always has.
 //
 // Pointers, channels and funcs are copied by reference, and structs by value
 // (so a struct's own slice or map fields are shared). Record data does not
 // normally hold them: connectors and the codecs produce maps, slices and
 // scalar values.
+//
+// d must not contain a cycle (a map or slice that contains itself): Clone
+// would recurse until the stack overflows. Record data decoded from
+// protobuf, JSON or Avro cannot be cyclic; a processor that builds its
+// output in memory (for example a JavaScript processor) must not return
+// one.
 func (d StructuredData) Clone() Data {
 	cloned := make(StructuredData, len(d))
 	for k, v := range d {
