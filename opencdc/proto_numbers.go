@@ -50,7 +50,9 @@ const (
 type IntegerNotRepresentableError struct {
 	// Path is the field path, e.g. "id" or "items[2].n" when returned by
 	// StructuredData.ToProto. Record.ToProto prefixes it with the location in
-	// the record, e.g. "key.id" or "payload.after.id".
+	// the record, e.g. "key.id" or "payload.after.id". A key that is empty or
+	// contains '.', '[', ']' or '"' is written quoted in brackets, e.g.
+	// `payload.after["a.b"]`, so a path always has one reading.
 	Path string
 	// GoType is the Go type of the value, e.g. "int64" or "json.Number".
 	GoType string
@@ -68,18 +70,27 @@ func (e *IntegerNotRepresentableError) Is(target error) bool {
 	return target == ErrIntegerNotRepresentable
 }
 
-// InvalidNumberError is returned (wrapped) by ToProto for a json.Number whose
-// literal is not a JSON number (RFC 8259). It matches ErrInvalidNumber with
-// errors.Is. Like IntegerNotRepresentableError it never carries the value.
+// InvalidNumberError is returned (wrapped) by ToProto for a json.Number that
+// cannot become a protobuf number: its literal is not a JSON number
+// (RFC 8259), or it is a non-integer outside the float64 range. It matches
+// ErrInvalidNumber with errors.Is. Like IntegerNotRepresentableError it never
+// carries the value.
 type InvalidNumberError struct {
 	// Path is the field path, with the same conventions as
 	// IntegerNotRepresentableError.Path.
 	Path string
+	// Reason says why, e.g. "is not a valid JSON number".
+	Reason string
 }
 
 func (e *InvalidNumberError) Error() string {
-	return fmt.Sprintf("field %q (json.Number) is not a valid JSON number", e.Path)
+	return fmt.Sprintf("field %q (json.Number) %s", e.Path, e.Reason)
 }
+
+const (
+	reasonNotJSONNumber     = "is not a valid JSON number"
+	reasonOutOfFloat64Range = "is outside the float64 range of a protobuf number"
+)
 
 // Is reports whether target is ErrInvalidNumber.
 func (e *InvalidNumberError) Is(target error) bool {
@@ -146,6 +157,12 @@ func (p pathStack) String() string {
 		if seg.isIndex {
 			sb.WriteByte('[')
 			sb.WriteString(strconv.Itoa(seg.index))
+			sb.WriteByte(']')
+			continue
+		}
+		if seg.key == "" || strings.ContainsAny(seg.key, `.[]"`) {
+			sb.WriteByte('[')
+			sb.WriteString(strconv.Quote(seg.key))
 			sb.WriteByte(']')
 			continue
 		}
@@ -254,19 +271,30 @@ func (w *structWalker) integer(v any) (val *structpb.Value, handled bool, err er
 	return val, true, nil
 }
 
-// jsonNumber checks v, which holds a json.Number with the literal lit. It
-// takes the interface value too, so delegating does not box it again.
-func (w *structWalker) jsonNumber(v any, lit string) (*structpb.Value, error) {
+// jsonNumber checks a json.Number with the literal lit. It converts the
+// number itself, the same way structpb.NewValue does (json.Number.Float64),
+// instead of delegating: structpb's error for a literal outside the float64
+// range quotes the whole literal, and an error must never carry the value.
+func (w *structWalker) jsonNumber(lit string) (*structpb.Value, error) {
 	switch classifyJSONNumber(lit) {
 	case jsonNumberInvalid:
-		return nil, &InvalidNumberError{Path: w.path.String()}
+		return nil, &InvalidNumberError{Path: w.path.String(), Reason: reasonNotJSONNumber}
 	case jsonNumberIntegerOutOfRange:
 		return nil, w.notRepresentable("json.Number")
 	case jsonNumberSafeInteger, jsonNumberNonInteger:
-		// Exactly what structpb does today. Non-integer (decimal) precision is
-		// out of scope (#3100).
+		// A safe integer converts exactly. A non-integer converts as it always
+		// has; decimal precision is out of scope (#3100).
 	}
-	return w.delegate(v)
+	f, err := json.Number(lit).Float64()
+	if err != nil {
+		// Only a grammar-valid literal reaches here, so the only failure is a
+		// non-integer beyond ±MaxFloat64 (strconv.ErrRange).
+		return nil, &InvalidNumberError{Path: w.path.String(), Reason: reasonOutOfFloat64Range}
+	}
+	if !w.build {
+		return nil, nil //nolint:nilnil // validation only
+	}
+	return structpb.NewNumberValue(f), nil
 }
 
 // delegate converts v with structpb.NewValue, or does nothing when only
@@ -287,7 +315,7 @@ func (w *structWalker) value(v any) (*structpb.Value, error) {
 	orig := v // delegate the interface value itself: re-boxing would allocate
 	switch v := v.(type) {
 	case json.Number:
-		return w.jsonNumber(orig, string(v))
+		return w.jsonNumber(string(v))
 	case map[string]any:
 		s, err := w.structValue(v)
 		if err != nil || !w.build {
@@ -439,8 +467,10 @@ func classifyJSONNumber(s string) jsonNumberClass {
 
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
-// ValidateProto reports the first error ToProto would return for r, without
-// allocating proto messages. Callers that encode a batch use it to attribute a
+// ValidateProto reports an error if and only if ToProto would return one for
+// r, without allocating proto messages. When r has several bad fields, which
+// one is reported can differ between calls, because Go map iteration order is
+// random; ToProto behaves the same way. Callers that encode a batch use it to attribute a
 // refusal to one record before encoding the batch. It is safe for concurrent
 // use and does not modify r.
 func (r Record) ValidateProto() error {

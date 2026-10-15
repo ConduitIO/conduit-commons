@@ -181,9 +181,13 @@ func (d RawData) ToProto(proto *opencdcv1.Data) error {
 // instead of rounding, any integer outside [-(2^53-1), 2^53-1] (int, int64,
 // uint, uint64, or an integral json.Number in any notation) with an error that
 // matches ErrIntegerNotRepresentable, and any json.Number that is not a valid
-// JSON number with an error that matches ErrInvalidNumber. Both errors carry
-// the field path, never the value. Other values convert exactly as
-// structpb.NewStruct converts them.
+// JSON number, or a non-integer beyond the float64 range, with an error that
+// matches ErrInvalidNumber. Both errors carry the field path, never the
+// value. When several fields are bad, which one is reported depends on map
+// iteration order. Other values convert exactly as structpb.NewStruct
+// converts them, including its errors; note that structpb's error for a
+// string or key with invalid UTF-8 quotes that string (%q), so it does carry
+// the value. That is pre-existing behavior this change does not alter.
 func (d StructuredData) ToProto(proto *opencdcv1.Data) error {
 	w := newStructWalker(true)
 	data, err := w.structValue(d)

@@ -17,6 +17,7 @@ package opencdc
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"regexp"
@@ -151,6 +152,9 @@ func TestRecord_ToProto_NumberErrorPaths(t *testing.T) {
 			"payload.after.items[2].n",
 		},
 		{"list of lists", Record{Key: StructuredData{"m": []any{[]any{1, wide}}}}, "key.m[0][1]"},
+		{"key with a dot", Record{Payload: Change{After: StructuredData{"a.b": wide}}}, `payload.after["a.b"]`},
+		{"key with a bracket", Record{Key: StructuredData{"x[0]": map[string]any{"n": wide}}}, `key["x[0]"].n`},
+		{"empty key", Record{Key: StructuredData{"": wide}}, `key[""]`},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -162,7 +166,7 @@ func TestRecord_ToProto_NumberErrorPaths(t *testing.T) {
 			is.True(errors.As(err, &e))
 			is.Equal(e.Path, tc.path)
 			is.Equal(e.GoType, "int64")
-			is.True(strings.Contains(err.Error(), `field "`+tc.path+`" (int64)`))
+			is.True(strings.Contains(err.Error(), fmt.Sprintf("field %q (int64)", tc.path)))
 
 			// ValidateProto reports the same error without encoding.
 			verr := tc.rec.ValidateProto()
@@ -232,6 +236,27 @@ func TestStructuredData_ToProto_JSONNumber(t *testing.T) {
 			is.True(errors.Is(err, tc.want))
 			is.True(!strings.Contains(err.Error(), tc.lit) || tc.lit == "")
 		})
+	}
+}
+
+// A non-integer beyond ±MaxFloat64 used to reach structpb, whose error quotes
+// the whole literal. The error must name the field, never the value.
+func TestStructuredData_ToProto_JSONNumberBeyondFloat64(t *testing.T) {
+	for _, lit := range []string{
+		strings.Repeat("9", 400) + ".5",
+		"-" + strings.Repeat("9", 400) + ".5",
+	} {
+		is := is.New(t)
+		var out opencdcv1.Data
+		err := StructuredData{"n": json.Number(lit)}.ToProto(&out)
+		is.True(errors.Is(err, ErrInvalidNumber))
+		var e *InvalidNumberError
+		is.True(errors.As(err, &e))
+		is.Equal(e.Path, "n")
+		is.True(!strings.Contains(err.Error(), "99999"))
+
+		verr := Record{Key: StructuredData{"n": json.Number(lit)}}.ValidateProto()
+		is.True(errors.Is(verr, ErrInvalidNumber))
 	}
 }
 
