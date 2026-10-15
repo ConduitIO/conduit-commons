@@ -21,3 +21,7 @@
 
 ### macOS ###
 .DS_Store
+
+### rapid ###
+# Fail files rapid writes to replay a failing property locally.
+testdata/rapid/

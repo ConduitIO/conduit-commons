@@ -19,6 +19,9 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"maps"
+	"reflect"
+	"slices"
 
 	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
 	"github.com/goccy/go-json"
@@ -60,16 +63,119 @@ func (d StructuredData) Bytes() []byte {
 	return b
 }
 
+// Clone returns a deep copy of d. The copy shares no mutable memory with d:
+// nested maps, slices and arrays are copied element by element, at any
+// depth, so changing the copy never changes d (Invariant 6: fan-out, the
+// clone and split processors, and the engine all rely on that).
+//
+// Every value keeps its Go type: a nested map[string]any stays
+// map[string]any, a nested StructuredData stays StructuredData, and a nil
+// map or slice stays nil. The result is reflect.DeepEqual to d.
+//
+// Pointers, channels and funcs are copied by reference, and structs by value
+// (so a struct's own slice or map fields are shared). Record data does not
+// normally hold them: connectors and the codecs produce maps, slices and
+// scalar values.
 func (d StructuredData) Clone() Data {
-	cloned := make(map[string]any, len(d))
+	cloned := make(StructuredData, len(d))
 	for k, v := range d {
-		if vmap, ok := v.(map[string]any); ok {
-			cloned[k] = StructuredData(vmap).Clone()
-		} else {
-			cloned[k] = v
-		}
+		cloned[k] = cloneValue(v)
 	}
-	return StructuredData(cloned)
+	return cloned
+}
+
+// cloneValue deep-copies v, keeping its type. The common record shapes have
+// fast paths; anything else goes through reflection.
+func cloneValue(v any) any {
+	switch v := v.(type) {
+	case nil, bool, string,
+		int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64,
+		float32, float64:
+		return v
+	case map[string]any:
+		if v == nil {
+			return v
+		}
+		m := make(map[string]any, len(v))
+		for k, e := range v {
+			m[k] = cloneValue(e)
+		}
+		return m
+	case StructuredData:
+		if v == nil {
+			return v
+		}
+		return v.Clone()
+	case []any:
+		if v == nil {
+			return v
+		}
+		s := make([]any, len(v))
+		for i, e := range v {
+			s[i] = cloneValue(e)
+		}
+		return s
+	case []byte:
+		return bytes.Clone(v) // nil stays nil
+	case RawData:
+		if v == nil {
+			return v
+		}
+		return RawData(bytes.Clone(v))
+	case []string:
+		return slices.Clone(v) // strings are immutable; nil stays nil
+	case map[string]string:
+		return maps.Clone(v) // nil stays nil
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() { //nolint:exhaustive // only containers need copying
+	case reflect.Map, reflect.Slice, reflect.Array:
+		return cloneReflect(rv).Interface()
+	default:
+		return v // scalars, time.Time and other structs are values; pointers are shared (see Clone)
+	}
+}
+
+// cloneReflect deep-copies maps, slices and arrays of any type, and the
+// values behind interfaces. Everything else is returned as is.
+func cloneReflect(v reflect.Value) reflect.Value {
+	switch v.Kind() { //nolint:exhaustive // every other kind is copied by value or shared on purpose
+	case reflect.Interface:
+		if v.IsNil() {
+			return v
+		}
+		out := reflect.New(v.Type()).Elem()
+		out.Set(cloneReflect(v.Elem()))
+		return out
+	case reflect.Map:
+		if v.IsNil() {
+			return v
+		}
+		out := reflect.MakeMapWithSize(v.Type(), v.Len())
+		iter := v.MapRange()
+		for iter.Next() {
+			out.SetMapIndex(iter.Key(), cloneReflect(iter.Value()))
+		}
+		return out
+	case reflect.Slice:
+		if v.IsNil() {
+			return v
+		}
+		out := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		for i := range v.Len() {
+			out.Index(i).Set(cloneReflect(v.Index(i)))
+		}
+		return out
+	case reflect.Array:
+		out := reflect.New(v.Type()).Elem()
+		for i := range v.Len() {
+			out.Index(i).Set(cloneReflect(v.Index(i)))
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // RawData contains unstructured data in form of a byte slice.

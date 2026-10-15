@@ -41,6 +41,22 @@ func zigzagVarint(n int64) []byte {
 	return rawUvarint(zz)
 }
 
+// rejectedNotTruncated reports whether err is a rejection other than
+// ErrTruncatedInput. Most payloads in this file are a bare block header
+// with no items, so they are also truncated; the tests that expect a
+// ceiling to reject them must not pass just because the input ran out.
+func rejectedNotTruncated(err error) bool {
+	return err != nil && !errors.Is(err, ErrTruncatedInput)
+}
+
+// nullArrayPayload is the complete encoding of an array<null> with n items:
+// one block header declaring n items (a null item takes no bytes) and the
+// terminating zero-count block. Without the terminator the payload is
+// truncated, which Unmarshal rejects (ConduitIO/conduit-commons#304).
+func nullArrayPayload(n int64) []byte {
+	return append(zigzagVarint(n), 0x00)
+}
+
 func rawUvarint(v uint64) []byte {
 	buf := make([]byte, binary.MaxVarintLen64)
 	i := binary.PutUvarint(buf, v)
@@ -95,7 +111,7 @@ func TestMaxInputSize_OptInRejectsOversizedInput(t *testing.T) {
 	out := map[string]any{"sentinel": "untouched"}
 	err = serde.Unmarshal(oversized, &out)
 
-	is.True(err != nil)
+	is.True(rejectedNotTruncated(err))
 	is.True(errors.Is(err, ErrInputTooLarge))
 	is.Equal(len(out), 1)                  // fail closed: still exactly the sentinel entry
 	is.Equal(out["sentinel"], "untouched") // fail closed: not zeroed, not partially decoded
@@ -251,7 +267,7 @@ func TestSwap_C1_UnboundedByDefault_WouldFailPreSwap(t *testing.T) {
 	var out []any
 	err = s.Unmarshal(payload, &out)
 
-	is.True(err != nil) // rejected by the default MaxSliceAllocSize; pre-swap/pre-config this was err == nil
+	is.True(rejectedNotTruncated(err)) // rejected by the default MaxSliceAllocSize; pre-swap/pre-config this was err == nil
 	t.Logf("C1 after swap+default config: err=%v len(out)=%d", err, len(out))
 }
 
@@ -269,15 +285,15 @@ func TestSwap_C1_BoundedByDefaultConfig(t *testing.T) {
 	// options configured, must still decode.
 	const underLimit = 900_000
 	var out []any
-	err = s.Unmarshal(zigzagVarint(underLimit), &out)
+	err = s.Unmarshal(nullArrayPayload(underLimit), &out)
 	is.NoErr(err)
 	is.Equal(len(out), underLimit)
 
 	// Just over initialDefaultMaxAllocSize: must be rejected.
 	const overLimit = initialDefaultMaxAllocSize + 1
 	var out2 []any
-	err = s.Unmarshal(zigzagVarint(overLimit), &out2)
-	is.True(err != nil)
+	err = s.Unmarshal(nullArrayPayload(overLimit), &out2)
+	is.True(rejectedNotTruncated(err))
 	t.Logf("declared=%d (initialDefaultMaxAllocSize+1): err=%v", overLimit, err)
 }
 
@@ -312,7 +328,7 @@ func TestArrayBound_OptInRejectsDeclaredCountAboveCeiling(t *testing.T) {
 	// in gets. The more interesting assertion is the next test, which
 	// keeps the whole payload under `ceiling` while still declaring more
 	// elements than could possibly fit in it.
-	is.True(err != nil)
+	is.True(rejectedNotTruncated(err))
 	t.Logf("err=%v len(out)=%d", err, len(out))
 }
 
@@ -338,7 +354,7 @@ func TestArrayBound_OptInSoundAgainstDeclaredCountWithinCeiling(t *testing.T) {
 
 	var out []int64
 	err = s.Unmarshal(payload, &out)
-	is.True(err != nil) // MaxInputSize's own check did NOT fire (payload << ceiling); the array bound did
+	is.True(rejectedNotTruncated(err)) // MaxInputSize's own check did NOT fire (payload << ceiling); the array bound did
 	t.Logf("err=%v len(out)=%d", err, len(out))
 }
 
@@ -403,7 +419,7 @@ func TestSwap_H1_NegativeLengthOverflow_Fixed(t *testing.T) {
 	err = s.Unmarshal(payload, &out)
 	n, c := len(out), cap(out) // capture immediately; do not touch out again if this regresses
 
-	is.True(err != nil) // pre-swap (hamba/avro) this was err == nil with a corrupted negative-length slice
+	is.True(rejectedNotTruncated(err)) // pre-swap (hamba/avro) this was err == nil with a corrupted negative-length slice
 	t.Logf("H1 after swap: 11-byte payload, err=%v, len(out)=%d, cap(out)=%d", err, n, c)
 }
 
@@ -493,7 +509,7 @@ func TestSwap_C3_UnboundedByDefault_WouldFailPreSwap(t *testing.T) {
 	err = s.Unmarshal(payload, &out)
 	elapsed := time.Since(start)
 
-	is.True(err != nil) // rejected by the default MaxMapAllocSize; pre-swap/pre-config this was err == nil after several seconds of CPU
+	is.True(rejectedNotTruncated(err)) // rejected by the default MaxMapAllocSize; pre-swap/pre-config this was err == nil after several seconds of CPU
 	t.Logf("C3 after swap+default config: err=%v len(out)=%d elapsed=%s", err, len(out), elapsed)
 	if elapsed > time.Second {
 		t.Errorf("rejection took %s; the default MaxMapAllocSize check should fire before any per-entry decode work, not after", elapsed)
@@ -547,7 +563,7 @@ func TestByteSliceBound_Fires(t *testing.T) {
 
 	var out []byte
 	err = s.Unmarshal(encoded, &out)
-	is.True(err != nil)
+	is.True(rejectedNotTruncated(err))
 	if err == nil {
 		return
 	}
@@ -814,7 +830,7 @@ func TestSwap_TimestampNanos_EncodeOverflow_Errors(t *testing.T) {
 
 	outOfRange := time.Date(3000, 1, 1, 0, 0, 0, 0, time.UTC) // past 2262-04-11, outside int64 ns-since-epoch range
 	_, err = s.Marshal(outOfRange)
-	is.True(err != nil)
+	is.True(rejectedNotTruncated(err))
 	t.Logf("out-of-range timestamp-nanos encode: err=%v", err)
 }
 
@@ -839,7 +855,7 @@ func TestWithMaxSliceAllocSize_RaisesAndLowersCeiling(t *testing.T) {
 
 		const declared = initialDefaultMaxAllocSize + 500_000 // above the package default, within the override
 		var out []any
-		err = s.Unmarshal(zigzagVarint(declared), &out)
+		err = s.Unmarshal(nullArrayPayload(declared), &out)
 		is.NoErr(err)
 		is.Equal(len(out), declared)
 	})
@@ -851,11 +867,11 @@ func TestWithMaxSliceAllocSize_RaisesAndLowersCeiling(t *testing.T) {
 		is.NoErr(err)
 
 		var outOver []any
-		err = s.Unmarshal(zigzagVarint(override+1), &outOver)
-		is.True(err != nil) // the package default (1,000,000) would have allowed this; the lowered override rejects it
+		err = s.Unmarshal(nullArrayPayload(override+1), &outOver)
+		is.True(rejectedNotTruncated(err)) // the package default (1,000,000) would have allowed this; the lowered override rejects it
 
 		var outWithin []any
-		err = s.Unmarshal(zigzagVarint(override), &outWithin)
+		err = s.Unmarshal(nullArrayPayload(override), &outWithin)
 		is.NoErr(err)
 		is.Equal(len(outWithin), override)
 	})
@@ -884,7 +900,7 @@ func TestWithMaxMapAllocSize_RaisesAndLowersCeiling(t *testing.T) {
 		is.NoErr(err)
 		var out map[string]string
 		err = s.Unmarshal(encoded, &out)
-		is.True(err != nil) // the package default (1,000,000) would have allowed this; the lowered override rejects it
+		is.True(rejectedNotTruncated(err)) // the package default (1,000,000) would have allowed this; the lowered override rejects it
 
 		justRight := map[string]string{}
 		for i := 0; len(justRight) < ceiling; i++ {
@@ -938,7 +954,7 @@ func TestWithMaxSliceAllocSize_RejectsNonPositive(t *testing.T) {
 
 	for _, n := range []int{0, -1, -1000} {
 		_, err := Parse([]byte(`{"type":"array","items":"null"}`), WithMaxSliceAllocSize(n))
-		is.True(err != nil)
+		is.True(rejectedNotTruncated(err))
 		is.True(errors.Is(err, ErrInvalidOption))
 		t.Logf("n=%d: err=%v", n, err)
 	}
@@ -949,7 +965,7 @@ func TestWithMaxMapAllocSize_RejectsNonPositive(t *testing.T) {
 
 	for _, n := range []int{0, -1, -1000} {
 		_, err := Parse([]byte(`{"type":"map","values":"string"}`), WithMaxMapAllocSize(n))
-		is.True(err != nil)
+		is.True(rejectedNotTruncated(err))
 		is.True(errors.Is(err, ErrInvalidOption))
 		t.Logf("n=%d: err=%v", n, err)
 	}
@@ -976,8 +992,8 @@ func TestWithMaxInputSize_TightensSmallerOverride(t *testing.T) {
 	// but backed by a payload that, if real, could never fit in 64 bytes)
 	// is rejected by the tightened ceiling.
 	var out []int64
-	err = s.Unmarshal(zigzagVarint(100), &out)
-	is.True(err != nil)
+	err = s.Unmarshal(nullArrayPayload(100), &out)
+	is.True(rejectedNotTruncated(err))
 	t.Logf("err=%v", err)
 }
 
@@ -992,11 +1008,11 @@ func TestWithMaxInputSize_DoesNotLoosenLargerOverride(t *testing.T) {
 	is.NoErr(err)
 
 	var outOver []any
-	err = s.Unmarshal(zigzagVarint(11), &outOver)
-	is.True(err != nil) // still bounded by the explicit override (10), not loosened to MaxInputSize's 1 MiB
+	err = s.Unmarshal(nullArrayPayload(11), &outOver)
+	is.True(rejectedNotTruncated(err)) // still bounded by the explicit override (10), not loosened to MaxInputSize's 1 MiB
 
 	var outWithin []any
-	err = s.Unmarshal(zigzagVarint(10), &outWithin)
+	err = s.Unmarshal(nullArrayPayload(10), &outWithin)
 	is.NoErr(err)
 	is.Equal(len(outWithin), 10)
 }
@@ -1021,7 +1037,7 @@ func TestSetDefaultMaxSliceAllocSize(t *testing.T) {
 
 	// n <= 0 is rejected; the current default is left unchanged.
 	err := SetDefaultMaxSliceAllocSize(0)
-	is.True(err != nil)
+	is.True(rejectedNotTruncated(err))
 	is.True(errors.Is(err, ErrInvalidOption))
 
 	// Lower the process-wide default; a Serde constructed afterward with
@@ -1035,11 +1051,11 @@ func TestSetDefaultMaxSliceAllocSize(t *testing.T) {
 	is.NoErr(err)
 
 	var outOver []any
-	err = s.Unmarshal(zigzagVarint(lowered+1), &outOver)
-	is.True(err != nil) // rejected by the new, lowered package-wide default
+	err = s.Unmarshal(nullArrayPayload(lowered+1), &outOver)
+	is.True(rejectedNotTruncated(err)) // rejected by the new, lowered package-wide default
 
 	var outWithin []any
-	err = s.Unmarshal(zigzagVarint(lowered), &outWithin)
+	err = s.Unmarshal(nullArrayPayload(lowered), &outWithin)
 	is.NoErr(err)
 	is.Equal(len(outWithin), lowered)
 
@@ -1048,7 +1064,7 @@ func TestSetDefaultMaxSliceAllocSize(t *testing.T) {
 	overridden, err := Parse([]byte(`{"type":"array","items":"null"}`), WithMaxSliceAllocSize(lowered*10))
 	is.NoErr(err)
 	var outOverridden []any
-	err = overridden.Unmarshal(zigzagVarint(lowered+1), &outOverridden)
+	err = overridden.Unmarshal(nullArrayPayload(lowered+1), &outOverridden)
 	is.NoErr(err)
 	is.Equal(len(outOverridden), lowered+1)
 }
@@ -1058,7 +1074,7 @@ func TestSetDefaultMaxMapAllocSize(t *testing.T) {
 	t.Cleanup(func() { is.NoErr(SetDefaultMaxMapAllocSize(initialDefaultMaxAllocSize)) })
 
 	err := SetDefaultMaxMapAllocSize(-5)
-	is.True(err != nil)
+	is.True(rejectedNotTruncated(err))
 	is.True(errors.Is(err, ErrInvalidOption))
 
 	const lowered = 10
@@ -1070,8 +1086,8 @@ func TestSetDefaultMaxMapAllocSize(t *testing.T) {
 	s, err := Parse([]byte(`{"type":"map","values":"string"}`))
 	is.NoErr(err)
 	var outOver map[string]string
-	err = s.Unmarshal(zigzagVarint(lowered+1), &outOver)
-	is.True(err != nil)
+	err = s.Unmarshal(nullArrayPayload(lowered+1), &outOver)
+	is.True(rejectedNotTruncated(err))
 
 	// Allow: real (Marshal-produced) data within the new, lowered default.
 	sReal, err := SerdeForType(map[string]string{})
@@ -1149,7 +1165,7 @@ func TestMaxInputSize_TighteningStillAppliesToNonNullItems(t *testing.T) {
 
 	var out []int64
 	err = s.Unmarshal(payload, &out)
-	is.True(err != nil) // MaxInputSize's own byte check did NOT fire (payload << ceiling); the tightened array bound did
+	is.True(rejectedNotTruncated(err)) // MaxInputSize's own byte check did NOT fire (payload << ceiling); the tightened array bound did
 	t.Logf("err=%v len(out)=%d", err, len(out))
 }
 
@@ -1190,7 +1206,7 @@ func TestUnmarshal_AllocCeilingRejection_LeavesPartialData(t *testing.T) {
 	out := map[string]any{}
 	err = s.Unmarshal(payload, &out)
 
-	is.True(err != nil)
+	is.True(rejectedNotTruncated(err))
 	is.Equal(out["before"], "hello") // decoded before the ceiling fired -- NOT rolled back
 	// The field that tripped the ceiling is present in the destination map
 	// as an untyped nil placeholder, not omitted and not its real value --
