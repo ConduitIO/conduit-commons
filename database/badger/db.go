@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/conduitio/conduit-commons/database"
 	"github.com/dgraph-io/badger/v4"
@@ -51,6 +52,45 @@ type DB struct {
 	// commit commits a transaction. It is txn.Commit, swapped in tests to
 	// simulate a write that blocks.
 	commit func(*badger.Txn) error
+
+	logger zerolog.Logger
+	// abandoned and abandonedFailed count writes Set stopped waiting for,
+	// and those of them whose commit then failed. See AbandonedWrites.
+	abandoned       atomic.Uint64
+	abandonedFailed atomic.Uint64
+	// betweenStatsLoads runs between AbandonedWrites' two loads. Tests use
+	// it to land a write in that window; it is nil otherwise.
+	betweenStatsLoads func()
+}
+
+// AbandonedWriteStats counts writes whose caller stopped waiting
+// (ErrWriteAbandoned) since the DB was opened.
+type AbandonedWriteStats struct {
+	// Abandoned is the number of writes Set returned ErrWriteAbandoned for.
+	Abandoned uint64
+	// Failed is how many of those failed to commit after Set returned, so
+	// the key kept its old value. The rest committed, or are still running.
+	// Failed <= Abandoned always holds. Abandoned can briefly count a write
+	// that finished at the same moment its ctx ended and was reported to
+	// the caller after all; that count is taken back right away.
+	Failed uint64
+}
+
+// AbandonedWrites returns the abandoned-write counters. Each failure is
+// also logged at error level, because no caller is left to see it.
+func (d *DB) AbandonedWrites() AbandonedWriteStats {
+	// Load Failed first. Every failure is counted after its write was
+	// permanently counted as abandoned, so Abandoned read afterwards is at
+	// least Failed. Loading in the other order lets a write be abandoned
+	// and fail between the two loads, and the reader sees Failed > Abandoned.
+	failed := d.abandonedFailed.Load()
+	if d.betweenStatsLoads != nil {
+		d.betweenStatsLoads()
+	}
+	return AbandonedWriteStats{
+		Abandoned: d.abandoned.Load(),
+		Failed:    failed,
+	}
 }
 
 var _ database.DB = (*DB)(nil)
@@ -68,6 +108,7 @@ func New(l zerolog.Logger, path string) (*DB, error) {
 	return &DB{
 		db:       db,
 		keyLocks: keyLocks{m: make(map[string]*keyLock)},
+		logger:   l.With().Str("component", "badger.DB").Logger(),
 		commit:   (*badger.Txn).Commit,
 	}, nil
 }
@@ -164,6 +205,8 @@ func (d *DB) getWithTxn(txn *badger.Txn, key string) ([]byte, error) {
 //     Invariant 5: badger commits a transaction atomically, and on a crash
 //     replay drops a transaction whose commit marker was not written, so the
 //     key is never torn.
+//     The background outcome is logged (error level if the commit failed)
+//     and counted in AbandonedWrites.
 //
 // A Set does not start its write while an earlier Set to the same key is
 // still running, abandoned or not; it waits, bounded by its own ctx. So an
@@ -182,6 +225,13 @@ func (d *DB) Set(ctx context.Context, key string, value []byte) error {
 	if err != nil {
 		return fmt.Errorf("badger: did not set key %q: %w", key, err)
 	}
+	// lock's select may pick the free lock even though ctx has ended, so
+	// check again: a Set whose ctx ended before the write starts writes
+	// nothing.
+	if err := ctx.Err(); err != nil {
+		unlock()
+		return fmt.Errorf("badger: did not set key %q: %w", key, err)
+	}
 
 	d.closeMu.RLock()
 	if d.closed {
@@ -194,24 +244,54 @@ func (d *DB) Set(ctx context.Context, key string, value []byte) error {
 
 	// The goroutine owns the transaction and the key lock from here on, so
 	// it can finish (or fail) the write after we stop waiting for it.
+	// handoff decides, exactly once, who reports the outcome: the goroutine
+	// hands it to Set (handoffDelivered), or Set gives up first
+	// (handoffAbandoned) and the goroutine logs and counts it instead.
+	var handoff atomic.Int32
 	done := make(chan error, 1)
 	go func() {
 		defer d.inflight.Done()
 		defer unlock()
-		done <- d.setAndCommit(key, value)
+		err := d.setAndCommit(key, value)
+		if handoff.CompareAndSwap(handoffWaiting, handoffDelivered) {
+			done <- err
+			return
+		}
+		d.reportAbandoned(key, err)
 	}()
 
 	select {
 	case err := <-done:
 		return err
 	case <-ctx.Done():
-		select {
-		case err := <-done: // finished at the same moment; report what happened
-			return err
-		default:
+		// Count before the CAS, so a reader never sees Failed > Abandoned:
+		// once Set wins, the goroutine may count a failure at any moment.
+		d.abandoned.Add(1)
+		if !handoff.CompareAndSwap(handoffWaiting, handoffAbandoned) {
+			d.abandoned.Add(^uint64(0)) // not abandoned after all
+			return <-done               // finished at the same moment; report what happened
 		}
 		return fmt.Errorf("badger: set key %q: %w: %w", key, ErrWriteAbandoned, ctx.Err())
 	}
+}
+
+const (
+	handoffWaiting int32 = iota
+	handoffDelivered
+	handoffAbandoned
+)
+
+// reportAbandoned records the outcome of a write whose caller already got
+// ErrWriteAbandoned. Nobody else will see a failure, so it is logged at
+// error level and counted.
+func (d *DB) reportAbandoned(key string, err error) {
+	if err != nil {
+		d.abandonedFailed.Add(1)
+		d.logger.Error().Err(err).Str("key", key).
+			Msg("badger: abandoned write failed, the key keeps its previous value")
+		return
+	}
+	d.logger.Info().Str("key", key).Msg("badger: abandoned write committed after its caller stopped waiting")
 }
 
 // setAndCommit writes key in a new transaction and commits it. The
