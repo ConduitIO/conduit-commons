@@ -18,6 +18,8 @@ package schema
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"strconv"
@@ -124,7 +126,11 @@ func (s Schema) Unmarshal(b []byte, v any) error {
 	return nil
 }
 
-// Fingerprint returns a unique 64 bit identifier for the schema.
+// Fingerprint returns the 64 bit Avro Rabin fingerprint of the schema bytes.
+// It is a CRC, not a cryptographic hash: different schemas can share a
+// fingerprint, and a party who controls schema text can construct such a pair
+// on purpose. Do not use it as the identity of a schema where a collision would
+// mix up two schemas, for example as a cache key.
 func (s Schema) Fingerprint() uint64 {
 	return rabin.Bytes(s.Bytes)
 }
@@ -143,7 +149,8 @@ func (s Schema) Serde() (Serde, error) {
 // A schema with References and a nil r fails with ErrResolverRequired,
 // without touching the cache.
 //
-// Serdes are cached process-wide by schema type, fingerprint and references,
+// Serdes are cached process-wide by schema type, content and references
+// (see serdeCacheKey),
 // and so are parse errors, except those that say nothing about the schema: a
 // parse that ran out of time or was cancelled (an error matching
 // context.DeadlineExceeded or context.Canceled), or failed to fetch a
@@ -167,7 +174,7 @@ func (s Schema) SerdeWithResolver(ctx context.Context, r Resolver) (Serde, error
 		// transient failure either (nothing to retry without a Resolver).
 		return nil, fmt.Errorf("failed to get serde for schema type %s with %d references: %w", s.Type, len(s.References), ErrResolverRequired)
 	}
-	key := serdeCacheKey{typ: s.Type, fingerprint: s.Fingerprint(), references: referencesKey(s.References)}
+	key := s.serdeCacheKey()
 	var err error
 	for range maxJoinedParseRetries + 1 {
 		if beforeCacheGet != nil {
@@ -240,22 +247,43 @@ func referencesKey(refs []Reference) string {
 	return b.String()
 }
 
-// serdeCacheKey identifies a cached Serde. The fingerprint covers only the
-// schema bytes, so the type has to be part of the key: the same bytes
-// registered under two types must parse with each type's own factory, and
-// must not share a Serde or a cached parse error. The same goes for the
-// references, encoded by referencesKey.
+// serdeCacheKey identifies a cached Serde: a SHA-256 digest over everything the
+// Serde depends on, the schema Type, References and Bytes. Identical schema
+// text under a different type, or with different references, is a different
+// schema.
+//
+// It is deliberately not built from Fingerprint(). That is a 64-bit Rabin CRC,
+// which is linear, so anyone who can register schema text can construct a
+// different schema with the same fingerprint. Keyed on it, the process-wide
+// cache would hand one schema's Serde to the other and records would decode
+// against the wrong schema without an error (Invariant 6). Subject, Version
+// and ID are left out on purpose: the Serde does not depend on them.
+//
+// The encoding is Type (4 bytes), the length of the references encoding (8
+// bytes), referencesKey, then Bytes. Every field but the last has a fixed or
+// length-prefixed width, so the tuple has exactly one encoding. Any field
+// added later must be length-prefixed too.
 //
 // The Resolver is not part of the key. The cache assumes one schema registry
 // per process: a subject and version name the same schema for every caller,
 // whichever Resolver they pass.
-type serdeCacheKey struct {
-	typ         Type
-	fingerprint uint64
-	references  string
+type serdeCacheKey [sha256.Size]byte
+
+func (s Schema) serdeCacheKey() serdeCacheKey {
+	refs := referencesKey(s.References)
+	h := sha256.New()
+	var hdr [12]byte
+	binary.BigEndian.PutUint32(hdr[:4], uint32(s.Type)) //nolint:gosec // Type is an int32 wire value, the cast keeps the bits
+	binary.BigEndian.PutUint64(hdr[4:], uint64(len(refs)))
+	h.Write(hdr[:])
+	h.Write([]byte(refs))
+	h.Write(s.Bytes)
+	var k serdeCacheKey
+	h.Sum(k[:0])
+	return k
 }
 
-// globalSerdeCache caches Serdes by schema type, fingerprint and references.
+// globalSerdeCache caches Serdes by schema type, content and references.
 // Every process uses a global cache to avoid re-parsing the same schema
 // multiple times; entries expire after 4 hours and at most 4096 are kept, so
 // schemas no pipeline uses any more are dropped. See serdeCache.

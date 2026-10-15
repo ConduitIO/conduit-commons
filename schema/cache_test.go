@@ -16,6 +16,7 @@ package schema
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync"
@@ -46,7 +47,15 @@ func newTestCache() (*serdeCache, *fakeClock) {
 	return newSerdeCache(4*time.Hour, 1<<20, clk.now), clk
 }
 
-var testKey = serdeCacheKey{typ: Type(7), fingerprint: 1}
+// testCacheKey returns a distinct cache key per n. The cache treats keys as
+// opaque, so tests do not need real digests.
+func testCacheKey(n uint64) serdeCacheKey {
+	var k serdeCacheKey
+	binary.BigEndian.PutUint64(k[:], n)
+	return k
+}
+
+var testKey = testCacheKey(1)
 
 func TestSerdeCache_SingleFlight(t *testing.T) {
 	c, _ := newTestCache()
@@ -222,7 +231,7 @@ func TestSerdeCache_PanickingLoadWakesWaitersAndIsNotKept(t *testing.T) {
 func TestSerdeCache_SweepDropsExpiredEntries(t *testing.T) {
 	c, clk := newTestCache()
 	for i := range 10 {
-		key := serdeCacheKey{typ: Type(7), fingerprint: uint64(i)}
+		key := testCacheKey(uint64(i))
 		_, _, _ = c.get(t.Context(), key, func() (Serde, error) { return fakeSerde{}, nil })
 	}
 	clk.advance(5 * time.Hour)
@@ -251,7 +260,7 @@ func TestSerdeCache_ConcurrentTransientFailuresNeverYieldNilSerde(t *testing.T) 
 			defer wg.Done()
 			for i := 0; time.Now().Before(deadline); i++ {
 				fp := uint64(g%4)<<32 | uint64(i/8)
-				key := serdeCacheKey{typ: Type(7), fingerprint: fp}
+				key := testCacheKey(fp)
 				srd, _, err := c.get(t.Context(), key, func() (Serde, error) {
 					n := calls.Add(1)
 					time.Sleep(time.Duration(n%3) * 20 * time.Microsecond)
@@ -278,7 +287,7 @@ func TestSerdeCache_ConcurrentTransientFailuresNeverYieldNilSerde(t *testing.T) 
 func TestSerdeCache_SizeCapEvictsEarliestExpiringFinishedEntry(t *testing.T) {
 	clk := &fakeClock{t: time.Unix(1_000_000, 0)}
 	c := newSerdeCache(4*time.Hour, 3, clk.now)
-	key := func(i int) serdeCacheKey { return serdeCacheKey{typ: Type(7), fingerprint: uint64(i)} }
+	key := func(i int) serdeCacheKey { return testCacheKey(uint64(i)) }
 	loads := map[int]int{}
 	get := func(i int) {
 		t.Helper()
@@ -314,7 +323,7 @@ func TestSerdeCache_SizeCapEvictsEarliestExpiringFinishedEntry(t *testing.T) {
 func TestSerdeCache_SizeCapNeverEvictsInFlightLoad(t *testing.T) {
 	clk := &fakeClock{t: time.Unix(1_000_000, 0)}
 	c := newSerdeCache(4*time.Hour, 2, clk.now)
-	key := func(i int) serdeCacheKey { return serdeCacheKey{typ: Type(7), fingerprint: uint64(i)} }
+	key := func(i int) serdeCacheKey { return testCacheKey(uint64(i)) }
 	release := make(chan struct{})
 	var started, wg sync.WaitGroup
 	var loads atomic.Int64
@@ -385,7 +394,7 @@ func TestSerdeCache_CapHoldsUnderConcurrentFlood(t *testing.T) {
 			defer wg.Done()
 			for i := 0; time.Now().Before(deadline); i++ {
 				fp := uint64(g)<<32 | uint64(i)
-				srd, _, err := c.get(t.Context(), serdeCacheKey{typ: Type(7), fingerprint: fp}, func() (Serde, error) {
+				srd, _, err := c.get(t.Context(), testCacheKey(fp), func() (Serde, error) {
 					time.Sleep(time.Duration(i%3) * 20 * time.Microsecond)
 					if i%5 == 0 {
 						return nil, fmt.Errorf("flaky: %w", context.DeadlineExceeded)
@@ -468,7 +477,7 @@ func TestSerdeCache_MapNeverExceedsCap(t *testing.T) {
 			defer wg.Done()
 			for i := 0; time.Now().Before(deadline); i++ {
 				fp := uint64(g)<<32 | uint64(i)
-				_, _, _ = c.get(t.Context(), serdeCacheKey{typ: Type(7), fingerprint: fp}, func() (Serde, error) {
+				_, _, _ = c.get(t.Context(), testCacheKey(fp), func() (Serde, error) {
 					observe() // this load is in flight
 					time.Sleep(time.Duration(i%4) * 50 * time.Microsecond)
 					return fakeSerde{}, nil
@@ -492,7 +501,7 @@ func TestSerdeCache_MapNeverExceedsCap(t *testing.T) {
 func TestSerdeCache_ExpiredEntriesLeaveTheFinishedList(t *testing.T) {
 	c, clk := newTestCache()
 	for i := range 10 {
-		_, _, _ = c.get(t.Context(), serdeCacheKey{typ: Type(7), fingerprint: uint64(i)}, func() (Serde, error) { return fakeSerde{}, nil })
+		_, _, _ = c.get(t.Context(), testCacheKey(uint64(i)), func() (Serde, error) { return fakeSerde{}, nil })
 	}
 	clk.advance(5 * time.Hour)
 	_, _, _ = c.get(t.Context(), testKey, func() (Serde, error) { return fakeSerde{}, nil })
