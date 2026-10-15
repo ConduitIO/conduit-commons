@@ -16,6 +16,9 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
+      - name: Property tests are named for the nightly run
+        run: .github/scripts/check-property-names.sh
+
       - name: Test
         # Property tests (pgregory.net/rapid) run a small, fixed number of
         # cases here. The nightly property workflow runs many more.

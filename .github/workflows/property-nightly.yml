@@ -54,12 +54,15 @@ jobs:
       # $GOCACHE/fuzz. Restoring them makes each night continue from the last
       # instead of starting from the seeds again. The key is unique per run
       # (a cache entry is immutable), and restore-keys picks the newest.
+      # Restore and save are separate steps because actions/cache saves only
+      # when the job succeeds, and a night that finds a failure is the one
+      # whose corpus matters most.
       - name: Locate the fuzz corpus
         id: corpus
         run: echo "dir=$(go env GOCACHE)/fuzz" >> "$GITHUB_OUTPUT"
 
       - name: Restore the fuzz corpus
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ steps.corpus.outputs.dir }}
           key: fuzz-corpus-${{ github.run_id }}
@@ -87,10 +90,30 @@ jobs:
             exit 1
           fi
 
-      - name: Upload failing fuzz inputs
+      - name: Save the fuzz corpus
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.corpus.outputs.dir }}
+          key: fuzz-corpus-${{ github.run_id }}
+
+      # A failing input is written to testdata/fuzz/<target>/ in the package,
+      # next to any committed seeds. Upload only files git does not track, so
+      # the artifact holds what this run found.
+      - name: Collect new failing fuzz inputs
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/fuzz-failures"
+          git ls-files --others --exclude-standard -- '*/testdata/fuzz/*' |
+            while IFS= read -r f; do
+              mkdir -p "$RUNNER_TEMP/fuzz-failures/$(dirname "$f")"
+              cp "$f" "$RUNNER_TEMP/fuzz-failures/$f"
+            done
+
+      - name: Upload new failing fuzz inputs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-failures
-          path: '**/testdata/fuzz/'
+          path: ${{ runner.temp }}/fuzz-failures/
           if-no-files-found: ignore
