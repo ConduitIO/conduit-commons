@@ -51,15 +51,31 @@ func newEncodeAPI() avro.API {
 	return avro.Config{}.Freeze()
 }
 
-// Marshal returns the Avro encoding of v. Note that this function may mutate v.
+// Marshal returns the Avro encoding of v. v is the same when Marshal returns
+// as before, whether it succeeds or fails, but Marshal changes it while it
+// runs (it puts union values into the codec's named form and takes them out
+// again), so v must not be used concurrently.
 // Limitations:
 // - Map keys need to be of type string,
 // - Array values need to be of type uint8 (byte).
 func (s *Serde) Marshal(v any) ([]byte, error) {
-	err := s.unionResolver.BeforeMarshal(v)
+	root, subs, err := s.unionResolver.wrapSubstitutions(v)
 	if err != nil {
 		return nil, err
 	}
+	if root != nil {
+		v = root // a top-level union value in the named form
+	}
+	for _, sub := range subs {
+		sub.substitute()
+	}
+	defer func() {
+		// Put the caller's value back, also when the codec failed, so a
+		// record routed to a DLQ keeps the shape it had.
+		for i := len(subs) - 1; i >= 0; i-- {
+			subs[i].undo()
+		}
+	}()
 	bytes, err := s.encodeAPI.Marshal(s.schema, v)
 	if err != nil {
 		return nil, fmt.Errorf("could not marshal into avro: %w", err)
