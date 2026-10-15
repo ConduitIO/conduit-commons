@@ -215,3 +215,25 @@ func TestStructuredData_Clone_NilsStayNil(t *testing.T) {
 		t.Fatalf("nil containers changed: %#v", c)
 	}
 }
+
+// RawData nested inside structured data is copied too, and keeps its type.
+func TestStructuredData_Clone_NestedRawData(t *testing.T) {
+	orig := StructuredData{"raw": RawData("abc"), "list": []any{RawData("def")}}
+	c := orig.Clone().(StructuredData)
+	if !reflect.DeepEqual(orig, c) {
+		t.Fatalf("clone differs: %#v", c)
+	}
+	c["raw"].(RawData)[0] = 'X'
+	c["list"].([]any)[0].(RawData)[0] = 'Y'
+	if string(orig["raw"].(RawData)) != "abc" || string(orig["list"].([]any)[0].(RawData)) != "def" {
+		t.Fatalf("nested RawData shared with the clone: %#v", orig)
+	}
+}
+
+// Cloning a nil StructuredData gives an empty, non-nil one, as before.
+func TestStructuredData_Clone_TopLevelNil(t *testing.T) {
+	c := StructuredData(nil).Clone().(StructuredData)
+	if c == nil || len(c) != 0 {
+		t.Fatalf("got %#v, want an empty, non-nil StructuredData", c)
+	}
+}
