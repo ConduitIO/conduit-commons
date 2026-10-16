@@ -99,11 +99,11 @@ func scalarValue(fd protoreflect.FieldDescriptor, v protoreflect.Value) any {
 		}
 		return int32(v.Enum())
 	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
-		return int32(v.Int())
+		return int32(v.Int()) //nolint:gosec // G115: an int32 field's value always fits in int32
 	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
 		return v.Int()
 	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
-		return uint32(v.Uint())
+		return uint32(v.Uint()) //nolint:gosec // G115: a uint32 field's value always fits in uint32
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		return v.Uint()
 	case protoreflect.FloatKind:
