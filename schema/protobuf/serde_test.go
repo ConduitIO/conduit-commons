@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/matryer/is"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -267,9 +268,16 @@ func TestSerde_IsDecodeOnly(t *testing.T) {
 	is.True(out == nil)
 	is.True(errors.Is(err, ErrEncodingNotSupported))
 
-	// Message index [0] (shortcut), then the payload.
-	var v any
+	// Message index [0] (shortcut), then the payload: field 1 ("id") = "1".
+	// Plain proto3 scalars and repeated fields have no presence, so they are
+	// emitted with their zero values.
+	var v opencdc.StructuredData
 	err = srd.Unmarshal([]byte{0x00, 0x0a, 0x01, 0x31}, &v)
-	is.Equal(matchingUnmarshalSentinels(err), []error{ErrDecodeNotImplemented})
-	is.Equal(v, nil)
+	is.NoErr(err)
+	is.Equal(v, opencdc.StructuredData{
+		"id":           "1",
+		"amount_cents": int64(0),
+		"paid":         false,
+		"tags":         []any{},
+	})
 }

@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/conduitio/conduit-commons/schema/protobuf"
 	"github.com/matryer/is"
 )
@@ -73,10 +74,11 @@ message Order { string id = 1; }
 	_, err = s.Marshal(map[string]any{"id": "1"})
 	is.True(errors.Is(err, protobuf.ErrEncodingNotSupported))
 
-	// Message index [0] (shortcut), then the payload.
-	var v any
+	// Message index [0] (shortcut), then the payload: field 1 ("id") = "1".
+	var v opencdc.StructuredData
 	err = s.Unmarshal([]byte{0x00, 0x0a, 0x01, 0x31}, &v)
-	is.True(errors.Is(err, protobuf.ErrDecodeNotImplemented))
+	is.NoErr(err)
+	is.Equal(v, opencdc.StructuredData{"id": "1"})
 
 	// A payload without a message index is rejected, not decoded.
 	err = s.Unmarshal([]byte{0x0a, 0x01, 0x31}, &v)

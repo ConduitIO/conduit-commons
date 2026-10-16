@@ -174,7 +174,7 @@ func TestMessageNestingDepth(t *testing.T) {
 
 // unmarshalSentinels lists every error Serde.Unmarshal may return; each error
 // must match exactly one of them.
-var unmarshalSentinels = []error{ErrMessageIndex, ErrDecodeNotImplemented}
+var unmarshalSentinels = []error{ErrMessageIndex, ErrDecode, ErrUnknownField}
 
 func matchingUnmarshalSentinels(err error) []error {
 	var out []error
