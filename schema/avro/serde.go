@@ -51,12 +51,15 @@ func newEncodeAPI() avro.API {
 	return avro.Config{}.Freeze()
 }
 
-// Marshal returns the Avro encoding of v. Note that this function may mutate v.
+// Marshal returns the Avro encoding of v. Marshal does not modify v, and is
+// safe to call concurrently on values that share nested maps and slices as
+// long as nobody else writes to them (ConduitIO/conduit-commons#342).
 // Limitations:
 // - Map keys need to be of type string,
 // - Array values need to be of type uint8 (byte).
 func (s *Serde) Marshal(v any) ([]byte, error) {
-	err := s.unionResolver.BeforeMarshal(v)
+	// Invariant 6: the union wrapping happens on a copy, never on v.
+	v, err := s.unionResolver.beforeMarshalCopy(v)
 	if err != nil {
 		return nil, err
 	}
