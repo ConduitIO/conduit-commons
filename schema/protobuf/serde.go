@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/bufbuild/protocompile"
+	"github.com/conduitio/conduit-commons/opencdc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -193,14 +194,25 @@ func (s *Serde) Marshal(any) ([]byte, error) {
 // 5-byte Confluent header (magic byte and schema ID), which the caller strips
 // to find the schema: the message index, then the Protobuf payload.
 //
-// A message index that doesn't select a message in the schema fails with
-// ErrMessageIndex. Until field mapping (PB-4) lands, a valid index then fails
-// with ErrDecodeNotImplemented, and v is never written.
-func (s *Serde) Unmarshal(b []byte, _ any) error {
-	if _, _, err := s.messageForIndex(b); err != nil {
+// v must be *opencdc.StructuredData; the decoded fields are written into it.
+// A message index that doesn't select a message fails with ErrMessageIndex; a
+// payload that doesn't parse fails with ErrDecode; a payload carrying fields
+// absent from the resolved descriptor fails with ErrUnknownField (invariant 6).
+func (s *Serde) Unmarshal(b []byte, v any) error {
+	md, payload, err := s.messageForIndex(b)
+	if err != nil {
 		return err
 	}
-	return ErrDecodeNotImplemented
+	sd, err := decodePayload(md, payload)
+	if err != nil {
+		return err
+	}
+	dst, ok := v.(*opencdc.StructuredData)
+	if !ok {
+		return fmt.Errorf("cannot decode protobuf into %T: want *opencdc.StructuredData", v)
+	}
+	*dst = sd
+	return nil
 }
 
 // String returns the .proto source the Serde was compiled from, unchanged.

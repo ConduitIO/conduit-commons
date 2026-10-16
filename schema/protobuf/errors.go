@@ -24,10 +24,17 @@ var (
 	// a Go value.
 	ErrEncodingNotSupported = errors.New("protobuf encoding is not supported")
 
-	// ErrDecodeNotImplemented is returned by Serde.Unmarshal, after the
-	// message index is resolved, until field mapping (PB-4) lands. It is a
-	// placeholder for unreleased work, not part of the decode contract.
-	ErrDecodeNotImplemented = errors.New("protobuf decoding is not implemented yet")
+	// ErrDecode is returned by Serde.Unmarshal when the payload does not parse
+	// against the resolved message descriptor (wrong descriptor mapped, or a
+	// corrupted payload). The wrapped error is the wire-format error.
+	ErrDecode = errors.New("failed to decode protobuf payload")
+
+	// ErrUnknownField is returned by Serde.Unmarshal when the payload carries
+	// fields the resolved descriptor does not declare (the producer is on a
+	// newer schema version). Decoding stops rather than silently dropping
+	// them (invariant 6). A configurable policy is planned with the processor
+	// (PB-5); reject is the only behavior for now.
+	ErrUnknownField = errors.New("protobuf payload contains unknown fields")
 
 	// ErrMessageIndex is returned by Serde.Unmarshal when the Confluent
 	// message index at the start of the value is malformed or doesn't select
