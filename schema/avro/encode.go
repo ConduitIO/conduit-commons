@@ -140,7 +140,7 @@ func (s *Serde) encodeValue(w *avro.Writer, schema avro.Schema, v any, path map[
 func (s *Serde) delegate(w *avro.Writer, schema avro.Schema, v any) error {
 	b, err := s.encodeAPI.Marshal(schema, v)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal avro value: %w", err)
 	}
 	_, _ = w.Write(b)
 	return w.Error
@@ -259,7 +259,7 @@ func (s *Serde) encodeRecord(w *avro.Writer, r *avro.RecordSchema, v any, path m
 func (s *Serde) encodeUnion(w *avro.Writer, u *avro.UnionSchema, v any, path map[avro.Schema]bool) error {
 	enc, err := s.encodeAPI.Marshal(u, v)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal avro union value: %w", err)
 	}
 
 	idx, n := decodeUnionIndex(enc)
@@ -277,7 +277,7 @@ func (s *Serde) encodeUnion(w *avro.Writer, u *avro.UnionSchema, v any, path map
 		return w.Error
 	}
 
-	w.WriteInt(int32(idx))
+	w.WriteInt(int32(idx)) //nolint:gosec // idx is bounds-checked above: 0 <= idx < len(u.Types()), so it fits in int32
 	return s.encodeValue(w, branch, unionBranchValue(branch, v), path)
 }
 
