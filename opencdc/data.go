@@ -24,6 +24,7 @@ import (
 	"slices"
 
 	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
+	opencdcv2 "github.com/conduitio/conduit-commons/proto/opencdc/v2"
 	"github.com/goccy/go-json"
 )
 
@@ -34,6 +35,7 @@ type Data interface {
 	Bytes() []byte
 	Clone() Data
 	ToProto(*opencdcv1.Data) error
+	ToProtoV2(*opencdcv2.Data) error
 }
 
 type Change struct {
