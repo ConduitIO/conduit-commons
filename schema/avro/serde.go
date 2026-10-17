@@ -31,6 +31,7 @@ type Serde struct {
 	maxInputSize  int      // 0 = unlimited (default); see WithMaxInputSize
 	decodeAPI     avro.API // built once at construction from maxInputSize; see limits.go
 	encodeAPI     avro.API // this Serde's own encoder cache; see newEncodeAPI
+	hasMap        bool     // whether the schema contains a map; see encode.go
 }
 
 // newEncodeAPI returns the codec configuration a Serde encodes with. It has
@@ -55,12 +56,23 @@ func newEncodeAPI() avro.API {
 // Limitations:
 // - Map keys need to be of type string,
 // - Array values need to be of type uint8 (byte).
+//
+// Marshal is deterministic for a given input: encoding the same value against
+// the same Serde always returns the same bytes. The codec encodes maps by
+// iterating the Go map, whose order Go randomizes on every range, so a schema
+// that contains a map is encoded by this package's own deterministic encoder
+// (see encode.go), which sorts map keys before writing them.
 func (s *Serde) Marshal(v any) ([]byte, error) {
 	err := s.unionResolver.BeforeMarshal(v)
 	if err != nil {
 		return nil, err
 	}
-	bytes, err := s.encodeAPI.Marshal(s.schema, v)
+	var bytes []byte
+	if s.hasMap {
+		bytes, err = s.marshalDeterministic(v)
+	} else {
+		bytes, err = s.encodeAPI.Marshal(s.schema, v)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("could not marshal into avro: %w", err)
 	}
@@ -211,6 +223,7 @@ func Parse(text []byte, opts ...Option) (*Serde, error) {
 		maxInputSize:  o.maxInputSize,
 		decodeAPI:     buildDecodeAPI(schema, o),
 		encodeAPI:     newEncodeAPI(),
+		hasMap:        schemaContainsMap(schema),
 	}, nil
 }
 
@@ -236,6 +249,7 @@ func SerdeForType(v any, opts ...Option) (*Serde, error) {
 		maxInputSize:  o.maxInputSize,
 		decodeAPI:     buildDecodeAPI(schema, o),
 		encodeAPI:     newEncodeAPI(),
+		hasMap:        schemaContainsMap(schema),
 	}
 	// Sort fields to ensure consistent schema representation.
 	s.sort()
