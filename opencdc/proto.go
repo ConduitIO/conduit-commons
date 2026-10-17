@@ -188,6 +188,19 @@ func (d RawData) ToProto(proto *opencdcv1.Data) error {
 // converts them, including its errors; note that structpb's error for a
 // string or key with invalid UTF-8 quotes that string (%q), so it does carry
 // the value. That is pre-existing behavior this change does not alter.
+//
+// Two structured value kinds still lose their Go type on a round trip, because
+// a google.protobuf.Struct has no bytes kind and one double kind:
+//   - []byte is encoded as a base64 string and decodes as string (dataFromProto
+//     cannot distinguish it from a string the sender wrote);
+//   - NaN and ±Inf are encoded as doubles but decode as the strings "NaN",
+//     "Infinity" and "-Infinity" (Struct.AsInterface renders them that way for
+//     JSON compatibility).
+//
+// Both are known limitations of the v1/v2 wire format, not silent coercion
+// this package chooses: the lossless protocol v3 encoding (bytes and double
+// kinds) fixes them. See conduit issue #3135 and the ADR
+// 20261015-lossless-structured-values-protocol-v3.md.
 func (d StructuredData) ToProto(proto *opencdcv1.Data) error {
 	w := newStructWalker(true)
 	data, err := w.structValue(d)
