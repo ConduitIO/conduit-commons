@@ -1,0 +1,120 @@
+name: property-nightly
+
+# The long run of the property tests. The normal test job runs every
+# property at a small count (RAPID_CHECKS=100) on every PR. This job runs the
+# same tests with many more cases, and fuzzes every Fuzz* target in the
+# module for FUZZTIME each, continuing from the corpus the previous night
+# found, where the extra cost would slow every PR down.
+#
+# A failure prints the rapid seed (-rapid.seed=...) that replays it, or, for
+# a fuzz target, the failing input under testdata/fuzz, uploaded below.
+
+on:
+  schedule:
+    - cron: "40 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  property:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Property tests, long run
+        env:
+          RAPID_CHECKS: "20000"
+          # The seeded property tests that predate rapid read this instead.
+          CONDUIT_PROPERTY_LONG: "1"
+        run: go test -race -count=1 -timeout 45m -run 'Property' ./...
+
+  fuzz:
+    runs-on: ubuntu-latest
+    # 12 targets x 2m of fuzzing is 24m, plus one test build per target.
+    timeout-minutes: 90
+    env:
+      FUZZTIME: 2m
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      # The fuzzer keeps the inputs it found interesting under
+      # $GOCACHE/fuzz. Restoring them makes each night continue from the last
+      # instead of starting from the seeds again. The key is unique per run
+      # (a cache entry is immutable), and restore-keys picks the newest.
+      # Restore and save are separate steps because actions/cache saves only
+      # when the job succeeds, and a night that finds a failure is the one
+      # whose corpus matters most.
+      - name: Locate the fuzz corpus
+        id: corpus
+        run: echo "dir=$(go env GOCACHE)/fuzz" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the fuzz corpus
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.corpus.outputs.dir }}
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: fuzz-corpus-
+
+      - name: Fuzz every target
+        # Every Fuzz* target in the module, found by name, so a new one is
+        # picked up without editing this file. Runs every target even after
+        # one fails, then fails the job if any failed.
+        run: |
+          set -uo pipefail
+          failed=()
+          while IFS= read -r file; do
+            dir=$(dirname "$file")
+            for name in $(sed -nE 's/^func (Fuzz[A-Za-z0-9_]+)\(.*/\1/p' "$file"); do
+              echo "::group::$dir $name"
+              if ! go test -run '^$' -fuzz "^${name}\$" -fuzztime "$FUZZTIME" "./$dir"; then
+                failed+=("$dir $name")
+              fi
+              echo "::endgroup::"
+            done
+          done < <(grep -rlE --include='*_test.go' '^func Fuzz' . | sort)
+          if [ ${#failed[@]} -gt 0 ]; then
+            printf '::error::fuzz target failed: %s\n' "${failed[@]}"
+            exit 1
+          fi
+
+      - name: Save the fuzz corpus
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.corpus.outputs.dir }}
+          key: fuzz-corpus-${{ github.run_id }}
+
+      # A failing input is written to testdata/fuzz/<target>/ in the package,
+      # next to any committed seeds. The glob pathspec also matches the
+      # module's root package (testdata/fuzz/... with no directory before it). Upload only files git does not track, so
+      # the artifact holds what this run found.
+      - name: Collect new failing fuzz inputs
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/fuzz-failures"
+          git ls-files --others --exclude-standard -- ':(glob)**/testdata/fuzz/**' |
+            while IFS= read -r f; do
+              mkdir -p "$RUNNER_TEMP/fuzz-failures/$(dirname "$f")"
+              cp "$f" "$RUNNER_TEMP/fuzz-failures/$f"
+            done
+
+      - name: Upload new failing fuzz inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-failures
+          path: ${{ runner.temp }}/fuzz-failures/
+          if-no-files-found: ignore

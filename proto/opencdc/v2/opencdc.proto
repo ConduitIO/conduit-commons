@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package opencdc.v2;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/conduitio/conduit-commons/proto/opencdc/v2";
+
+// Operation defines what triggered the creation of a record.
+enum Operation {
+  OPERATION_UNSPECIFIED = 0;
+  // Records with operation create contain data of a newly created entity.
+  OPERATION_CREATE = 1;
+  // Records with operation update contain data of an updated entity.
+  OPERATION_UPDATE = 2;
+  // Records with operation delete contain data of a deleted entity.
+  OPERATION_DELETE = 3;
+  // Records with operation snapshot contain data of a previously existing
+  // entity, fetched as part of a snapshot.
+  OPERATION_SNAPSHOT = 4;
+}
+
+// Record contains data about a single change event related to a single entity.
+message Record {
+  // Position uniquely identifies the record.
+  bytes position = 1;
+
+  // Operation defines what triggered the creation of a record.
+  Operation operation = 2;
+
+  // Metadata contains optional information related to the record.
+  map<string, string> metadata = 3;
+
+  // Key represents a value that should identify the entity (e.g. database row).
+  Data key = 4;
+  // Payload holds the payload change (data before and after the operation
+  // occurred).
+  Change payload = 5;
+}
+
+// Change represents the data before and after the operation occurred.
+message Change {
+  // Before contains the data before the operation occurred.
+  Data before = 1;
+  // After contains the data after the operation occurred.
+  Data after = 2;
+}
+
+// Data is used to represent the record key and payload. It can be either raw
+// data (byte array) or structured data (a map from string to Value).
+message Data {
+  oneof data {
+    // Raw data contains unstructured data in form of a byte array.
+    bytes raw_data = 1;
+    // Structured data contains data in form of a map from string to Value. A
+    // protobuf map field cannot live directly inside a oneof, so the map is
+    // wrapped in Struct.
+    Struct structured_data = 2;
+  }
+}
+
+// Struct is a structured value: a map from string to Value.
+message Struct {
+  map<string, Value> fields = 1;
+}
+
+// List is a list of values.
+message List {
+  repeated Value items = 1;
+}
+
+// Value is a recursively-typed value. Exactly one of the fields in kind is
+// set, and the field that is set determines the value's kind.
+message Value {
+  oneof kind {
+    // Null is the null value.
+    google.protobuf.NullValue null = 1;
+    // Bool is a boolean value.
+    bool bool = 2;
+    // Double is an IEEE 754 double-precision floating point value. NaN and
+    // positive and negative infinity are valid double values.
+    double double = 3;
+    // String is a UTF-8 string value.
+    string string = 4;
+    // Int64 is a signed 64-bit integer value.
+    int64 int64 = 5;
+    // Uint64 is an unsigned 64-bit integer value.
+    uint64 uint64 = 6;
+    // Bytes is an arbitrary sequence of bytes.
+    bytes bytes = 7;
+    // List is a list of values.
+    List list = 8;
+    // Struct is a structured value (a map from string to Value).
+    Struct struct = 9;
+    // Decimal is a decimal number stored as its exact string form, so it never
+    // passes through a float64 and never loses precision.
+    string decimal = 10;
+  }
+  // Field 11 is reserved for a future timestamp kind. Its representation is
+  // not yet specified, so the field number and name are held open without
+  // defining a field.
+  reserved 11;
+  reserved "timestamp";
+}

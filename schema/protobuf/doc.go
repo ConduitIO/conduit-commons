@@ -25,12 +25,10 @@
 //     google/protobuf/*.proto files.
 //   - PB-2: Confluent message-index handling, selecting the message a payload
 //     was encoded with.
-//   - PB-3 (this state): schema-reference resolution through a caller-supplied
+//   - PB-3: schema-reference resolution through a caller-supplied
 //     resolver, and a caller context that cancels the parse.
-//   - PB-4: decoding a payload into structured data.
+//   - PB-4 (this state): decoding a payload into opencdc.StructuredData.
 //
-// Until PB-4 lands, Serde.Unmarshal resolves the message index and then
-// returns ErrDecodeNotImplemented.
 // Support is decode-only by design: Serde.Marshal, and the SerdeForType entry
 // for this type in schema.KnownSerdeFactories, return ErrEncodingNotSupported,
 // because a Protobuf schema (field numbers, message identity) can't be
@@ -120,7 +118,7 @@
 // ErrReferenceCycle, ErrReferenceLimit, ErrInvalidReference,
 // ErrReservedPackage, ErrUnresolvedImport or ErrSchemaCompile under errors.Is. Every error
 // Serde.Unmarshal returns matches exactly one of
-// ErrMessageIndex or ErrDecodeNotImplemented. These sentinels are the stable
+// ErrMessageIndex, ErrDecode or ErrUnknownField. These sentinels are the stable
 // identities that callers (the conduit protobuf.decode processor) map to
 // error codes.
 package protobuf
