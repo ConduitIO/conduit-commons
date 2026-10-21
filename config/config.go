@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -130,22 +131,22 @@ func (c Config) validateParamType(key string, param Parameter) error {
 		case ParameterTypeInt:
 			_, err := strconv.Atoi(value)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("error validating %q: %q value is not an integer: %w", k, value, ErrInvalidParameterType))
+				errs = append(errs, fmt.Errorf("error validating %q: value is not an integer: %w", k, ErrInvalidParameterType))
 			}
 		case ParameterTypeFloat:
 			_, err := strconv.ParseFloat(value, 64)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("error validating %q: %q value is not a float: %w", k, value, ErrInvalidParameterType))
+				errs = append(errs, fmt.Errorf("error validating %q: value is not a float: %w", k, ErrInvalidParameterType))
 			}
 		case ParameterTypeDuration:
 			_, err := time.ParseDuration(value)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("error validating %q: %q value is not a duration: %w", k, value, ErrInvalidParameterType))
+				errs = append(errs, fmt.Errorf("error validating %q: value is not a duration: %w", k, ErrInvalidParameterType))
 			}
 		case ParameterTypeBool:
 			_, err := strconv.ParseBool(value)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("error validating %q: %q value is not a boolean: %w", k, value, ErrInvalidParameterType))
+				errs = append(errs, fmt.Errorf("error validating %q: value is not a boolean: %w", k, ErrInvalidParameterType))
 			}
 		}
 	}
@@ -291,10 +292,35 @@ func (c Config) DecodeInto(target any, hookFunc ...mapstructure.DecodeHookFunc) 
 	}
 	err = decoder.Decode(c.breakUp())
 	if err != nil {
-		return fmt.Errorf("failed to decode configuration map into target: %w", err)
+		return fmt.Errorf("failed to decode configuration map into target: %w", sanitizeDecodeError(err))
 	}
 
 	return nil
+}
+
+// decodeErrKey extracts the parameter name from a mapstructure error message.
+// The name is always the first quoted token ("'name' expected type ...",
+// "cannot parse 'name' as int: ...", "error decoding 'name': ..."), the value
+// only ever appears after it.
+var decodeErrKey = regexp.MustCompile(`'([^']*)'`)
+
+// sanitizeDecodeError makes sure a decode error does not echo configuration
+// values. mapstructure and its hooks put the offending value into the message
+// (e.g. strconv's `parsing "value"`), so only the parameter names are kept.
+func sanitizeDecodeError(err error) error {
+	var msErr *mapstructure.Error
+	if !errors.As(err, &msErr) {
+		return err
+	}
+	keys := make([]string, 0, len(msErr.Errors))
+	for _, m := range msErr.Errors {
+		if match := decodeErrKey.FindStringSubmatch(m); match != nil {
+			keys = append(keys, match[1])
+		} else {
+			keys = append(keys, "(unknown)")
+		}
+	}
+	return fmt.Errorf("invalid value for parameter(s) [%s] (values are not shown): %w", strings.Join(keys, ", "), ErrInvalidParameterValue)
 }
 
 // breakUp breaks up the configuration into a map of maps based on the dot separator.
