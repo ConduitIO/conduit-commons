@@ -18,6 +18,7 @@ import (
 	"errors"
 	"regexp"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -1056,6 +1057,154 @@ func TestConfig_getValuesForParameter(t *testing.T) {
 			sort.Strings(tc.want)
 			sort.Strings(got)
 			is.Equal(cmp.Diff(tc.want, got), "")
+		})
+	}
+}
+
+// secretValue is a marker that must never appear in a validation error.
+const secretValue = "s3cr3t-VALUE-9f2"
+
+func TestConfig_Validate_ErrorsDoNotEchoValue(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		param   Parameter
+		wantErr error
+		// wantMsg lists substrings the message must contain: the key, the rule
+		// and the expected type or range.
+		wantMsg []string
+		// listed is true if the value is part of the rule's own list.
+		listed bool
+	}{{
+		name:    "type int",
+		value:   secretValue,
+		param:   Parameter{Type: ParameterTypeInt},
+		wantErr: ErrInvalidParameterType,
+		wantMsg: []string{`"param1"`, "not an integer"},
+	}, {
+		name:    "type float",
+		value:   secretValue,
+		param:   Parameter{Type: ParameterTypeFloat},
+		wantErr: ErrInvalidParameterType,
+		wantMsg: []string{`"param1"`, "not a float"},
+	}, {
+		name:    "type duration",
+		value:   secretValue,
+		param:   Parameter{Type: ParameterTypeDuration},
+		wantErr: ErrInvalidParameterType,
+		wantMsg: []string{`"param1"`, "not a duration"},
+	}, {
+		name:    "type bool",
+		value:   secretValue,
+		param:   Parameter{Type: ParameterTypeBool},
+		wantErr: ErrInvalidParameterType,
+		wantMsg: []string{`"param1"`, "not a boolean"},
+	}, {
+		name:    "required",
+		value:   "",
+		param:   Parameter{Validations: []Validation{ValidationRequired{}}},
+		wantErr: ErrRequiredParameterMissing,
+		wantMsg: []string{`"param1"`, "required"},
+	}, {
+		name:    "greater-than, not a number",
+		value:   secretValue,
+		param:   Parameter{Validations: []Validation{ValidationGreaterThan{10}}},
+		wantErr: ErrInvalidParameterValue,
+		wantMsg: []string{`"param1"`, "should be a number"},
+	}, {
+		name:    "greater-than, out of range",
+		value:   "5.5123456",
+		param:   Parameter{Validations: []Validation{ValidationGreaterThan{10}}},
+		wantErr: ErrGreaterThanValidationFail,
+		wantMsg: []string{`"param1"`, "greater than 10"},
+	}, {
+		name:    "less-than, not a number",
+		value:   secretValue,
+		param:   Parameter{Validations: []Validation{ValidationLessThan{10}}},
+		wantErr: ErrInvalidParameterValue,
+		wantMsg: []string{`"param1"`, "should be a number"},
+	}, {
+		name:    "less-than, out of range",
+		value:   "99.5123456",
+		param:   Parameter{Validations: []Validation{ValidationLessThan{10}}},
+		wantErr: ErrLessThanValidationFail,
+		wantMsg: []string{`"param1"`, "less than 10"},
+	}, {
+		name:    "inclusion",
+		value:   secretValue,
+		param:   Parameter{Validations: []Validation{ValidationInclusion{[]string{"one", "two"}}}},
+		wantErr: ErrInclusionValidationFail,
+		wantMsg: []string{`"param1"`, "included in the list [one,two]"},
+	}, {
+		// The forbidden list is part of the rule (it is published in the
+		// connector spec), so it is reported; the value is one of its
+		// entries and therefore not asserted absent for this case.
+		name:    "exclusion",
+		value:   "forbidden-a",
+		param:   Parameter{Validations: []Validation{ValidationExclusion{[]string{"forbidden-a", "forbidden-b"}}}},
+		wantErr: ErrExclusionValidationFail,
+		wantMsg: []string{`"param1"`, "excluded from the list [forbidden-a,forbidden-b]"},
+		listed:  true,
+	}, {
+		name:    "regex",
+		value:   secretValue,
+		param:   Parameter{Validations: []Validation{ValidationRegex{regexp.MustCompile("^[0-9]+$")}}},
+		wantErr: ErrRegexValidationFail,
+		wantMsg: []string{`"param1"`, "match the regex", "^[0-9]+$"},
+	}}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			is := is.New(t)
+			params := Parameters{"param1": tt.param}
+			err := Config{"param1": tt.value}.Validate(params)
+			is.True(err != nil)
+			is.True(errors.Is(err, tt.wantErr))
+			msg := err.Error()
+			for _, want := range tt.wantMsg {
+				is.True(strings.Contains(msg, want))
+			}
+			// the value must not be echoed in any form
+			is.True(tt.listed || tt.value == "" || !strings.Contains(msg, tt.value))
+			is.True(!strings.Contains(msg, "5.5123456"))
+			is.True(!strings.Contains(msg, "99.5123456"))
+		})
+	}
+}
+
+func TestConfig_Validate_ErrorsDoNotEchoValue_Dynamic(t *testing.T) {
+	is := is.New(t)
+	params := Parameters{"foo.*.param1": {Type: ParameterTypeInt}}
+	err := Config{"foo.7.param1": secretValue}.Validate(params)
+	is.True(errors.Is(err, ErrInvalidParameterType))
+	is.True(strings.Contains(err.Error(), `"foo.7.param1"`))
+	is.True(!strings.Contains(err.Error(), secretValue))
+}
+
+func TestConfig_DecodeInto_ErrorsDoNotEchoValue(t *testing.T) {
+	type target struct {
+		Count   int           `json:"count"`
+		Timeout time.Duration `json:"timeout"`
+		Flag    bool          `json:"flag"`
+	}
+	tests := []struct {
+		name string
+		cfg  Config
+		key  string
+	}{
+		{"int", Config{"count": secretValue}, "count"},
+		{"duration", Config{"timeout": secretValue}, "timeout"},
+		{"bool", Config{"flag": secretValue}, "flag"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			is := is.New(t)
+			var got target
+			err := tt.cfg.DecodeInto(&got)
+			is.True(err != nil)
+			is.True(errors.Is(err, ErrInvalidParameterValue))
+			is.True(strings.Contains(err.Error(), tt.key))
+			is.True(!strings.Contains(err.Error(), secretValue))
 		})
 	}
 }
