@@ -1,0 +1,231 @@
+// Copyright © 2026 Meroxa, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package logsafe holds the one helper the Conduit ecosystem uses to refer to
+// record data in a log line or an error without writing the data.
+//
+// Record keys, positions (which embed key values for some connectors) and
+// payload values must not appear in logs or in errors: errors reach the DLQ,
+// the API and CLI output. A salted digest lets two lines about the same value
+// in one process be matched, which is all a log reader needs.
+package logsafe
+
+import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding"
+	"encoding/hex"
+	"fmt"
+	"math"
+	"reflect"
+	"sort"
+	"time"
+)
+
+// salt is random per process: a logged digest cannot be reversed by hashing
+// guessed values (record keys are often sequential ids) and cannot be matched
+// across processes or restarts.
+var salt = func() []byte {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("logsafe: cannot read random bytes for the salt: %v", err))
+	}
+	return b
+}()
+
+// Hash returns a short (16 hex characters), salted digest of b. The same bytes
+// give the same digest within a process. Never log the bytes themselves; log
+// their length and this.
+func Hash(b []byte) string {
+	mac := hmac.New(sha256.New, salt)
+	mac.Write(b)
+	return hex.EncodeToString(mac.Sum(nil)[:8])
+}
+
+// HashString is Hash for a string.
+func HashString(s string) string { return Hash([]byte(s)) }
+
+// HashValue is Hash for a structured value such as a key map. The digest is
+// computed over a canonical encoding, not over fmt's output: equal values give
+// equal digests whatever the map iteration order, pointer address or time zone
+// of a time.Time (an instant is encoded in UTC), and values of different types
+// differ, so 1 and "1" are different keys.
+func HashValue(v any) string {
+	var b bytes.Buffer
+	canonical(&b, reflect.ValueOf(v), map[uintptr]bool{})
+	return Hash(b.Bytes())
+}
+
+var (
+	timeType          = reflect.TypeOf(time.Time{})
+	textMarshalerType = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+)
+
+// canonical writes a self-delimiting, type-tagged encoding of v. active holds
+// the addresses of the pointers, maps and slices being encoded, so a value
+// that contains itself ends in "cycle;" instead of overflowing the stack.
+func canonical(b *bytes.Buffer, v reflect.Value, active map[uintptr]bool) {
+	if !v.IsValid() {
+		b.WriteString("n;")
+		return
+	}
+	// Dereference pointers and interfaces: the address is not the value.
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			b.WriteString("n;")
+			return
+		}
+		if v.Kind() == reflect.Pointer {
+			addr := v.Pointer()
+			if active[addr] {
+				b.WriteString("cycle;")
+				return
+			}
+			active[addr] = true
+			defer delete(active, addr)
+		}
+		v = v.Elem()
+	}
+	if v.Type() == timeType {
+		t, _ := v.Interface().(time.Time)
+		fmt.Fprintf(b, "t%d;", t.UnixNano())
+		return
+	}
+	// Types that are not made of their exported fields (big.Int, big.Float,
+	// big.Rat, netip.Addr, decimals, ...) encode themselves as text.
+	if text, ok := marshalText(v); ok {
+		fmt.Fprintf(b, "T%s:%d:%s;", v.Type().String(), len(text), text)
+		return
+	}
+	switch v.Kind() { //nolint:exhaustive // the remaining kinds have no value to hash and are handled by the default
+	case reflect.Slice, reflect.Array:
+		canonicalSeq(b, v, active)
+	case reflect.Map:
+		canonicalMap(b, v, active)
+	case reflect.Struct:
+		canonicalStruct(b, v, active)
+	default:
+		canonicalScalar(b, v)
+	}
+}
+
+// marshalText encodes v with its MarshalText method, if it has one (on the
+// value or on a pointer to it).
+func marshalText(v reflect.Value) ([]byte, bool) {
+	var m encoding.TextMarshaler
+	switch {
+	case v.Type().Implements(textMarshalerType):
+		m, _ = v.Interface().(encoding.TextMarshaler)
+	case reflect.PointerTo(v.Type()).Implements(textMarshalerType):
+		pv := reflect.New(v.Type())
+		pv.Elem().Set(v)
+		m, _ = pv.Interface().(encoding.TextMarshaler)
+	}
+	if m == nil {
+		return nil, false
+	}
+	text, err := m.MarshalText()
+	if err != nil {
+		return nil, false
+	}
+	return text, true
+}
+
+func canonicalScalar(b *bytes.Buffer, v reflect.Value) {
+	switch v.Kind() { //nolint:exhaustive // composite kinds are handled by canonical
+	case reflect.Bool:
+		fmt.Fprintf(b, "b%t;", v.Bool())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		fmt.Fprintf(b, "i%d;", v.Int())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		fmt.Fprintf(b, "u%d;", v.Uint())
+	case reflect.Float32, reflect.Float64:
+		fmt.Fprintf(b, "f%d;", math.Float64bits(v.Float()))
+	case reflect.Complex64, reflect.Complex128:
+		c := v.Complex()
+		fmt.Fprintf(b, "c%d,%d;", math.Float64bits(real(c)), math.Float64bits(imag(c)))
+	case reflect.String:
+		fmt.Fprintf(b, "s%d:%s;", v.Len(), v.String())
+	default:
+		// channels, functions: their identity is not a value
+		fmt.Fprintf(b, "x%s;", v.Type().String())
+	}
+}
+
+func canonicalSeq(b *bytes.Buffer, v reflect.Value, active map[uintptr]bool) {
+	if v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8 {
+		fmt.Fprintf(b, "y%d:", v.Len())
+		b.Write(v.Bytes())
+		b.WriteString(";")
+		return
+	}
+	if v.Kind() == reflect.Slice && v.Len() > 0 {
+		addr := v.Pointer()
+		if active[addr] {
+			b.WriteString("cycle;")
+			return
+		}
+		active[addr] = true
+		defer delete(active, addr)
+	}
+	fmt.Fprintf(b, "l%d[", v.Len())
+	for i := range v.Len() {
+		canonical(b, v.Index(i), active)
+	}
+	b.WriteString("];")
+}
+
+func canonicalMap(b *bytes.Buffer, v reflect.Value, active map[uintptr]bool) {
+	if v.Len() > 0 {
+		addr := v.Pointer()
+		if active[addr] {
+			b.WriteString("cycle;")
+			return
+		}
+		active[addr] = true
+		defer delete(active, addr)
+	}
+	type entry struct {
+		key string
+		val reflect.Value
+	}
+	entries := make([]entry, 0, v.Len())
+	for it := v.MapRange(); it.Next(); {
+		var kb bytes.Buffer
+		canonical(&kb, it.Key(), active)
+		entries = append(entries, entry{kb.String(), it.Value()})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
+	fmt.Fprintf(b, "m%d{", len(entries))
+	for _, e := range entries {
+		b.WriteString(e.key)
+		canonical(b, e.val, active)
+	}
+	b.WriteString("};")
+}
+
+func canonicalStruct(b *bytes.Buffer, v reflect.Value, active map[uintptr]bool) {
+	fmt.Fprintf(b, "S%s{", v.Type().String())
+	for i := range v.NumField() {
+		f := v.Type().Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		fmt.Fprintf(b, "%s=", f.Name)
+		canonical(b, v.Field(i), active)
+	}
+	b.WriteString("};")
+}
