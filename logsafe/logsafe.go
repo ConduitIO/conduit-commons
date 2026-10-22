@@ -26,6 +26,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -64,14 +65,19 @@ func HashString(s string) string { return Hash([]byte(s)) }
 // differ, so 1 and "1" are different keys.
 func HashValue(v any) string {
 	var b bytes.Buffer
-	canonical(&b, reflect.ValueOf(v))
+	canonical(&b, reflect.ValueOf(v), map[uintptr]bool{})
 	return Hash(b.Bytes())
 }
 
-var timeType = reflect.TypeOf(time.Time{})
+var (
+	timeType          = reflect.TypeOf(time.Time{})
+	textMarshalerType = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+)
 
-// canonical writes a self-delimiting, type-tagged encoding of v.
-func canonical(b *bytes.Buffer, v reflect.Value) {
+// canonical writes a self-delimiting, type-tagged encoding of v. active holds
+// the addresses of the pointers, maps and slices being encoded, so a value
+// that contains itself ends in "cycle;" instead of overflowing the stack.
+func canonical(b *bytes.Buffer, v reflect.Value, active map[uintptr]bool) {
 	if !v.IsValid() {
 		b.WriteString("n;")
 		return
@@ -82,6 +88,15 @@ func canonical(b *bytes.Buffer, v reflect.Value) {
 			b.WriteString("n;")
 			return
 		}
+		if v.Kind() == reflect.Pointer {
+			addr := v.Pointer()
+			if active[addr] {
+				b.WriteString("cycle;")
+				return
+			}
+			active[addr] = true
+			defer delete(active, addr)
+		}
 		v = v.Elem()
 	}
 	if v.Type() == timeType {
@@ -89,16 +104,44 @@ func canonical(b *bytes.Buffer, v reflect.Value) {
 		fmt.Fprintf(b, "t%d;", t.UnixNano())
 		return
 	}
+	// Types that are not made of their exported fields (big.Int, big.Float,
+	// big.Rat, netip.Addr, decimals, ...) encode themselves as text.
+	if text, ok := marshalText(v); ok {
+		fmt.Fprintf(b, "T%s:%d:%s;", v.Type().String(), len(text), text)
+		return
+	}
 	switch v.Kind() { //nolint:exhaustive // the remaining kinds have no value to hash and are handled by the default
 	case reflect.Slice, reflect.Array:
-		canonicalSeq(b, v)
+		canonicalSeq(b, v, active)
 	case reflect.Map:
-		canonicalMap(b, v)
+		canonicalMap(b, v, active)
 	case reflect.Struct:
-		canonicalStruct(b, v)
+		canonicalStruct(b, v, active)
 	default:
 		canonicalScalar(b, v)
 	}
+}
+
+// marshalText encodes v with its MarshalText method, if it has one (on the
+// value or on a pointer to it).
+func marshalText(v reflect.Value) ([]byte, bool) {
+	var m encoding.TextMarshaler
+	switch {
+	case v.Type().Implements(textMarshalerType):
+		m, _ = v.Interface().(encoding.TextMarshaler)
+	case reflect.PointerTo(v.Type()).Implements(textMarshalerType):
+		pv := reflect.New(v.Type())
+		pv.Elem().Set(v)
+		m, _ = pv.Interface().(encoding.TextMarshaler)
+	}
+	if m == nil {
+		return nil, false
+	}
+	text, err := m.MarshalText()
+	if err != nil {
+		return nil, false
+	}
+	return text, true
 }
 
 func canonicalScalar(b *bytes.Buffer, v reflect.Value) {
@@ -122,21 +165,39 @@ func canonicalScalar(b *bytes.Buffer, v reflect.Value) {
 	}
 }
 
-func canonicalSeq(b *bytes.Buffer, v reflect.Value) {
+func canonicalSeq(b *bytes.Buffer, v reflect.Value, active map[uintptr]bool) {
 	if v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8 {
 		fmt.Fprintf(b, "y%d:", v.Len())
 		b.Write(v.Bytes())
 		b.WriteString(";")
 		return
 	}
+	if v.Kind() == reflect.Slice && v.Len() > 0 {
+		addr := v.Pointer()
+		if active[addr] {
+			b.WriteString("cycle;")
+			return
+		}
+		active[addr] = true
+		defer delete(active, addr)
+	}
 	fmt.Fprintf(b, "l%d[", v.Len())
 	for i := range v.Len() {
-		canonical(b, v.Index(i))
+		canonical(b, v.Index(i), active)
 	}
 	b.WriteString("];")
 }
 
-func canonicalMap(b *bytes.Buffer, v reflect.Value) {
+func canonicalMap(b *bytes.Buffer, v reflect.Value, active map[uintptr]bool) {
+	if v.Len() > 0 {
+		addr := v.Pointer()
+		if active[addr] {
+			b.WriteString("cycle;")
+			return
+		}
+		active[addr] = true
+		defer delete(active, addr)
+	}
 	type entry struct {
 		key string
 		val reflect.Value
@@ -144,19 +205,19 @@ func canonicalMap(b *bytes.Buffer, v reflect.Value) {
 	entries := make([]entry, 0, v.Len())
 	for it := v.MapRange(); it.Next(); {
 		var kb bytes.Buffer
-		canonical(&kb, it.Key())
+		canonical(&kb, it.Key(), active)
 		entries = append(entries, entry{kb.String(), it.Value()})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
 	fmt.Fprintf(b, "m%d{", len(entries))
 	for _, e := range entries {
 		b.WriteString(e.key)
-		canonical(b, e.val)
+		canonical(b, e.val, active)
 	}
 	b.WriteString("};")
 }
 
-func canonicalStruct(b *bytes.Buffer, v reflect.Value) {
+func canonicalStruct(b *bytes.Buffer, v reflect.Value, active map[uintptr]bool) {
 	fmt.Fprintf(b, "S%s{", v.Type().String())
 	for i := range v.NumField() {
 		f := v.Type().Field(i)
@@ -164,7 +225,7 @@ func canonicalStruct(b *bytes.Buffer, v reflect.Value) {
 			continue
 		}
 		fmt.Fprintf(b, "%s=", f.Name)
-		canonical(b, v.Field(i))
+		canonical(b, v.Field(i), active)
 	}
 	b.WriteString("};")
 }

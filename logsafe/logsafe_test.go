@@ -15,6 +15,8 @@
 package logsafe
 
 import (
+	"math/big"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -70,4 +72,44 @@ func TestHashValue_Canonical(t *testing.T) {
 	// nil values do not panic and differ from empty strings
 	is.True(HashValue(nil) != HashValue(""))
 	is.True(HashValue((*string)(nil)) == HashValue(nil))
+}
+
+func TestHashValue_Cycles(t *testing.T) {
+	is := is.New(t)
+
+	m := map[string]any{"id": 1}
+	m["self"] = m
+	is.Equal(len(HashValue(m)), 16) // does not overflow the stack
+
+	s := make([]any, 2)
+	s[0], s[1] = 1, s
+	is.Equal(len(HashValue(s)), 16)
+
+	type node struct{ next *node }
+	n := &node{}
+	n.next = n
+	is.Equal(len(HashValue(n)), 16)
+
+	// a cycle is a function of the shape, not of the address
+	m2 := map[string]any{"id": 1}
+	m2["self"] = m2
+	is.Equal(HashValue(m), HashValue(m2))
+	is.True(HashValue(m) != HashValue(map[string]any{"id": 2, "self": nil}))
+}
+
+func TestHashValue_TypesWithUnexportedFields(t *testing.T) {
+	is := is.New(t)
+
+	is.True(HashValue(big.NewInt(1)) != HashValue(big.NewInt(2)))
+	is.Equal(HashValue(big.NewInt(42)), HashValue(*big.NewInt(42)))
+	is.Equal(HashValue(big.NewInt(42)), HashValue(big.NewInt(42)))
+
+	is.True(HashValue(big.NewRat(1, 3)) != HashValue(big.NewRat(2, 3)))
+	is.True(HashValue(new(big.Float).SetFloat64(1.5)) != HashValue(new(big.Float).SetFloat64(2.5)))
+
+	a, b := netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("10.0.0.2")
+	is.True(HashValue(a) != HashValue(b))
+
+	// nested in a key map
+	is.True(HashValue(map[string]any{"id": big.NewInt(1)}) != HashValue(map[string]any{"id": big.NewInt(2)}))
 }
