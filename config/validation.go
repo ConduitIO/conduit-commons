@@ -69,11 +69,11 @@ func (v ValidationGreaterThan) Value() string        { return strconv.FormatFloa
 func (v ValidationGreaterThan) Validate(value string) error {
 	val, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		return fmt.Errorf("%q value should be a number: %w", value, ErrInvalidParameterValue)
+		return fmt.Errorf("value should be a number: %w", ErrInvalidParameterValue)
 	}
 	if !(val > v.V) {
 		formatted := strconv.FormatFloat(v.V, 'f', -1, 64)
-		return fmt.Errorf("%q should be greater than %s: %w", value, formatted, ErrGreaterThanValidationFail)
+		return fmt.Errorf("value should be greater than %s: %w", formatted, ErrGreaterThanValidationFail)
 	}
 	return nil
 }
@@ -88,11 +88,11 @@ func (v ValidationLessThan) Value() string        { return strconv.FormatFloat(v
 func (v ValidationLessThan) Validate(value string) error {
 	val, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		return fmt.Errorf("%q value should be a number: %w", value, ErrInvalidParameterValue)
+		return fmt.Errorf("value should be a number: %w", ErrInvalidParameterValue)
 	}
 	if !(val < v.V) {
 		formatted := strconv.FormatFloat(v.V, 'f', -1, 64)
-		return fmt.Errorf("%q should be less than %s: %w", value, formatted, ErrLessThanValidationFail)
+		return fmt.Errorf("value should be less than %s: %w", formatted, ErrLessThanValidationFail)
 	}
 	return nil
 }
@@ -106,7 +106,7 @@ func (v ValidationInclusion) Type() ValidationType { return ValidationTypeInclus
 func (v ValidationInclusion) Value() string        { return strings.Join(v.List, ",") }
 func (v ValidationInclusion) Validate(value string) error {
 	if !slices.Contains(v.List, value) {
-		return fmt.Errorf("%q value must be included in the list [%s]: %w", value, strings.Join(v.List, ","), ErrInclusionValidationFail)
+		return fmt.Errorf("value must be included in the list [%s]: %w", strings.Join(v.List, ","), ErrInclusionValidationFail)
 	}
 	return nil
 }
@@ -120,7 +120,7 @@ func (v ValidationExclusion) Type() ValidationType { return ValidationTypeExclus
 func (v ValidationExclusion) Value() string        { return strings.Join(v.List, ",") }
 func (v ValidationExclusion) Validate(value string) error {
 	if slices.Contains(v.List, value) {
-		return fmt.Errorf("%q value must be excluded from the list [%s]: %w", value, strings.Join(v.List, ","), ErrExclusionValidationFail)
+		return fmt.Errorf("value must be excluded from the list [%s]: %w", strings.Join(v.List, ","), ErrExclusionValidationFail)
 	}
 	return nil
 }
@@ -134,7 +134,7 @@ func (v ValidationRegex) Type() ValidationType { return ValidationTypeRegex }
 func (v ValidationRegex) Value() string        { return v.Regex.String() }
 func (v ValidationRegex) Validate(value string) error {
 	if !v.Regex.MatchString(value) {
-		return fmt.Errorf("%q should match the regex %q: %w", value, v.Regex.String(), ErrRegexValidationFail)
+		return fmt.Errorf("value should match the regex %q: %w", v.Regex.String(), ErrRegexValidationFail)
 	}
 	return nil
 }
