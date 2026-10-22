@@ -89,7 +89,20 @@ func canonical(b *bytes.Buffer, v reflect.Value) {
 		fmt.Fprintf(b, "t%d;", t.UnixNano())
 		return
 	}
-	switch v.Kind() {
+	switch v.Kind() { //nolint:exhaustive // the remaining kinds have no value to hash and are handled by the default
+	case reflect.Slice, reflect.Array:
+		canonicalSeq(b, v)
+	case reflect.Map:
+		canonicalMap(b, v)
+	case reflect.Struct:
+		canonicalStruct(b, v)
+	default:
+		canonicalScalar(b, v)
+	}
+}
+
+func canonicalScalar(b *bytes.Buffer, v reflect.Value) {
+	switch v.Kind() { //nolint:exhaustive // composite kinds are handled by canonical
 	case reflect.Bool:
 		fmt.Fprintf(b, "b%t;", v.Bool())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -98,51 +111,60 @@ func canonical(b *bytes.Buffer, v reflect.Value) {
 		fmt.Fprintf(b, "u%d;", v.Uint())
 	case reflect.Float32, reflect.Float64:
 		fmt.Fprintf(b, "f%d;", math.Float64bits(v.Float()))
+	case reflect.Complex64, reflect.Complex128:
+		c := v.Complex()
+		fmt.Fprintf(b, "c%d,%d;", math.Float64bits(real(c)), math.Float64bits(imag(c)))
 	case reflect.String:
 		fmt.Fprintf(b, "s%d:%s;", v.Len(), v.String())
-	case reflect.Slice, reflect.Array:
-		if v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8 {
-			fmt.Fprintf(b, "y%d:", v.Len())
-			b.Write(v.Bytes())
-			b.WriteString(";")
-			return
-		}
-		fmt.Fprintf(b, "l%d[", v.Len())
-		for i := range v.Len() {
-			canonical(b, v.Index(i))
-		}
-		b.WriteString("];")
-	case reflect.Map:
-		type kv struct {
-			key string
-			val reflect.Value
-		}
-		entries := make([]kv, 0, v.Len())
-		for it := v.MapRange(); it.Next(); {
-			var kb bytes.Buffer
-			canonical(&kb, it.Key())
-			entries = append(entries, kv{kb.String(), it.Value()})
-		}
-		sort.Slice(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
-		fmt.Fprintf(b, "m%d{", len(entries))
-		for _, e := range entries {
-			b.WriteString(e.key)
-			canonical(b, e.val)
-		}
-		b.WriteString("};")
-	case reflect.Struct:
-		fmt.Fprintf(b, "S%s{", v.Type().String())
-		for i := range v.NumField() {
-			f := v.Type().Field(i)
-			if !f.IsExported() {
-				continue
-			}
-			fmt.Fprintf(b, "%s=", f.Name)
-			canonical(b, v.Field(i))
-		}
-		b.WriteString("};")
 	default:
 		// channels, functions: their identity is not a value
 		fmt.Fprintf(b, "x%s;", v.Type().String())
 	}
+}
+
+func canonicalSeq(b *bytes.Buffer, v reflect.Value) {
+	if v.Kind() == reflect.Slice && v.Type().Elem().Kind() == reflect.Uint8 {
+		fmt.Fprintf(b, "y%d:", v.Len())
+		b.Write(v.Bytes())
+		b.WriteString(";")
+		return
+	}
+	fmt.Fprintf(b, "l%d[", v.Len())
+	for i := range v.Len() {
+		canonical(b, v.Index(i))
+	}
+	b.WriteString("];")
+}
+
+func canonicalMap(b *bytes.Buffer, v reflect.Value) {
+	type entry struct {
+		key string
+		val reflect.Value
+	}
+	entries := make([]entry, 0, v.Len())
+	for it := v.MapRange(); it.Next(); {
+		var kb bytes.Buffer
+		canonical(&kb, it.Key())
+		entries = append(entries, entry{kb.String(), it.Value()})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
+	fmt.Fprintf(b, "m%d{", len(entries))
+	for _, e := range entries {
+		b.WriteString(e.key)
+		canonical(b, e.val)
+	}
+	b.WriteString("};")
+}
+
+func canonicalStruct(b *bytes.Buffer, v reflect.Value) {
+	fmt.Fprintf(b, "S%s{", v.Type().String())
+	for i := range v.NumField() {
+		f := v.Type().Field(i)
+		if !f.IsExported() {
+			continue
+		}
+		fmt.Fprintf(b, "%s=", f.Name)
+		canonical(b, v.Field(i))
+	}
+	b.WriteString("};")
 }
