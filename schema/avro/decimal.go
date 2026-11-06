@@ -20,6 +20,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/iskorotkov/avro/v2"
 )
@@ -56,7 +57,11 @@ func schemaContainsDecimal(schema avro.Schema) bool {
 
 func schemaContainsDecimalSeen(schema avro.Schema, seen map[avro.Schema]bool) bool {
 	if seen[schema] {
-		return false // already on this path (a recursive reference)
+		// Already visited, on this path (a recursive reference) or another
+		// one. Returning false is safe: the search stops at the first true,
+		// so a schema visited before did not contain a decimal, or is still
+		// being searched further up.
+		return false
 	}
 	seen[schema] = true
 
@@ -229,10 +234,14 @@ func (w *decimalWalker) record(s *avro.RecordSchema, v reflect.Value) error {
 			return fv, fv.IsValid()
 		}
 	case v.Kind() == reflect.Struct:
-		fields := structFieldsByAvroName(v)
+		fields := structFieldsByAvroName(v.Type())
 		lookup = func(name string) (reflect.Value, bool) {
-			fv, ok := fields[name]
-			return fv, ok
+			index, ok := fields[name]
+			if !ok {
+				return reflect.Value{}, false
+			}
+			fv, err := v.FieldByIndexErr(index)
+			return fv, err == nil // err: the field is in a nil embedded struct pointer
 		}
 	default:
 		return nil // the codec cannot encode it as a record and says so
@@ -251,54 +260,66 @@ func (w *decimalWalker) record(s *avro.RecordSchema, v reflect.Value) error {
 	return nil
 }
 
-// structFieldsByAvroName returns the exported fields of the struct v by the
-// name the codec matches them with: the avro tag up to its first comma, or
-// the Go field name. Like the codec, it includes the fields of embedded
-// structs, breadth first, and the first field found with a name wins.
-func structFieldsByAvroName(v reflect.Value) map[string]reflect.Value {
-	out := make(map[string]reflect.Value)
+// structFieldsByAvroName returns the index (for reflect.Value.FieldByIndex)
+// of each exported field of the struct type t, by the name the codec matches
+// it with: the avro tag up to its first comma, or the Go field name. Like the
+// codec's describeStruct, it includes the fields of embedded structs and
+// struct pointers, breadth first, and the first field found with a name
+// wins. It works on the type, as the codec does, so the result is cached per
+// type and a struct value costs no allocation.
+func structFieldsByAvroName(t reflect.Type) map[string][]int {
+	if c, ok := structFieldsCache.Load(t); ok {
+		return c.(map[string][]int) //nolint:forcetypeassert // only this function stores
+	}
+	type embedded struct {
+		t     reflect.Type
+		index []int
+	}
+	out := make(map[string][]int)
 	visited := make(map[reflect.Type]bool)
-	next := []reflect.Value{v}
+	next := []embedded{{t: t}}
 	for len(next) > 0 {
 		curr := next
 		next = nil
-		for _, sv := range curr {
-			if visited[sv.Type()] {
+		for _, e := range curr {
+			if visited[e.t] {
 				continue
 			}
-			visited[sv.Type()] = true
-			next = append(next, addStructFields(sv, out)...)
+			visited[e.t] = true
+			for i := range e.t.NumField() {
+				sf := e.t.Field(i)
+				index := append(append(make([]int, 0, len(e.index)+1), e.index...), i)
+				if sf.Anonymous {
+					ft := sf.Type
+					if ft.Kind() == reflect.Pointer {
+						ft = ft.Elem()
+					}
+					if ft.Kind() == reflect.Struct {
+						next = append(next, embedded{t: ft, index: index})
+					}
+					continue
+				}
+				if !sf.IsExported() {
+					continue
+				}
+				name := sf.Name
+				if tag, ok := sf.Tag.Lookup("avro"); ok {
+					name, _, _ = strings.Cut(tag, ",")
+				}
+				if _, ok := out[name]; !ok {
+					out[name] = index
+				}
+			}
 		}
 	}
-	return out
+	c, _ := structFieldsCache.LoadOrStore(t, out)
+	return c.(map[string][]int) //nolint:forcetypeassert // only this function stores
 }
 
-// addStructFields adds the exported, named fields of the struct sv to out,
-// unless out already has the name, and returns its embedded structs.
-func addStructFields(sv reflect.Value, out map[string]reflect.Value) []reflect.Value {
-	var embedded []reflect.Value
-	for i := range sv.NumField() {
-		sf := sv.Type().Field(i)
-		fv := sv.Field(i)
-		if sf.Anonymous {
-			if fv = derefValue(fv); fv.IsValid() && fv.Kind() == reflect.Struct {
-				embedded = append(embedded, fv)
-			}
-			continue
-		}
-		if !sf.IsExported() {
-			continue
-		}
-		name := sf.Name
-		if tag, ok := sf.Tag.Lookup("avro"); ok {
-			name, _, _ = strings.Cut(tag, ",")
-		}
-		if _, ok := out[name]; !ok {
-			out[name] = fv
-		}
-	}
-	return embedded
-}
+// structFieldsCache maps a struct reflect.Type to structFieldsByAvroName's
+// result. It grows with the number of distinct Go struct types encoded,
+// which a program fixes at compile time.
+var structFieldsCache sync.Map
 
 func (w *decimalWalker) union(s *avro.UnionSchema, v reflect.Value) error {
 	// The named form: the codec reads every map[string]any in a union
@@ -444,12 +465,24 @@ var bigPow10Cache = func() [77]*big.Int {
 	return c
 }()
 
-// bigPow10 returns 10^n. The result must not be modified.
+// bigPow10Large caches 10^n for n above 76, computed on first use. Only
+// call bigPow10 with an exponent taken from a schema (a precision, a scale
+// or their difference), so the cache grows with the schemas in use, not with
+// the data; an exponent derived from a value is computed per call instead
+// (see fits).
+var bigPow10Large sync.Map // int -> *big.Int
+
+// bigPow10 returns 10^n for a schema-derived n. The result is shared and
+// must not be modified.
 func bigPow10(n int) *big.Int {
 	if n < len(bigPow10Cache) {
 		return bigPow10Cache[n]
 	}
-	return new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n)), nil)
+	if c, ok := bigPow10Large.Load(n); ok {
+		return c.(*big.Int) //nolint:forcetypeassert // only this function stores
+	}
+	c, _ := bigPow10Large.LoadOrStore(n, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n)), nil))
+	return c.(*big.Int) //nolint:forcetypeassert // only this function stores
 }
 
 // neededScale returns the number of fractional digits of a reduced fraction

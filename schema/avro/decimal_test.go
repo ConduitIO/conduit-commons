@@ -128,6 +128,10 @@ func TestSerde_Marshal_DecimalParsedSchemas(t *testing.T) {
 		tagged
 		Other int `avro:"other"`
 	}
+	type embeddedPtr struct {
+		*tagged
+		Other int `avro:"other"`
+	}
 	fixedDec := `{"type":"fixed","name":"fx","size":8,"logicalType":"decimal","precision":10,"scale":2}`
 
 	testCases := []struct {
@@ -312,6 +316,43 @@ func TestSerde_Marshal_DecimalParsedSchemas(t *testing.T) {
 			schema:  `{"type":"record","name":"r","fields":[{"name":"amount","type":` + bytesDecimal(10, 2) + `},{"name":"other","type":"int"}]}`,
 			value:   &embedded{tagged: tagged{Amount: mustRat(t, "1.255")}},
 			wantErr: `field "amount": the value needs precision 4 and scale 3`,
+		},
+		{
+			name:    "go struct, embedded pointer",
+			schema:  `{"type":"record","name":"r","fields":[{"name":"amount","type":` + bytesDecimal(10, 2) + `},{"name":"other","type":"int"}]}`,
+			value:   embeddedPtr{tagged: &tagged{Amount: mustRat(t, "1.255")}},
+			wantErr: `field "amount": the value needs precision 4 and scale 3`,
+		},
+		{
+			name:   "go struct, embedded pointer, exact",
+			schema: `{"type":"record","name":"r","fields":[{"name":"amount","type":` + bytesDecimal(10, 2) + `},{"name":"other","type":"int"}]}`,
+			value:  embeddedPtr{tagged: &tagged{Amount: mustRat(t, "1.25")}},
+		},
+		{
+			// A nil embedded pointer: the walker skips its fields and the
+			// codec reports it.
+			name:     "go struct, nil embedded pointer",
+			schema:   `{"type":"record","name":"r","fields":[{"name":"amount","type":["null",` + bytesDecimal(10, 2) + `]},{"name":"other","type":"int"}]}`,
+			value:    embeddedPtr{},
+			codecErr: true,
+		},
+		{
+			// Above the cached powers of ten (10^76).
+			name:    "precision 100, scale 80",
+			schema:  decimalRecordSchema(bytesDecimal(100, 80)),
+			value:   map[string]any{"d": new(big.Rat).SetFrac(big.NewInt(1), new(big.Int).Lsh(big.NewInt(1), 81))},
+			wantErr: `field "d": the value needs precision 81 and scale 81, the schema is decimal(100,80)`,
+		},
+		{
+			name:   "precision 100, scale 80, exact",
+			schema: decimalRecordSchema(bytesDecimal(100, 80)),
+			value:  map[string]any{"d": new(big.Rat).SetFrac(big.NewInt(1), new(big.Int).Lsh(big.NewInt(1), 80))},
+		},
+		{
+			name:    "precision 100, scale 80, too many integer digits",
+			schema:  decimalRecordSchema(bytesDecimal(100, 80)),
+			value:   map[string]any{"d": new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(20), nil))},
+			wantErr: `field "d": the value needs precision 21 and scale 0, the schema is decimal(100,80)`,
 		},
 		{
 			name:   "top-level decimal",
