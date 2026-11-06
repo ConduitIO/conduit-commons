@@ -271,13 +271,9 @@ func structFieldsByAvroName(t reflect.Type) map[string][]int {
 	if c, ok := structFieldsCache.Load(t); ok {
 		return c.(map[string][]int) //nolint:forcetypeassert // only this function stores
 	}
-	type embedded struct {
-		t     reflect.Type
-		index []int
-	}
 	out := make(map[string][]int)
 	visited := make(map[reflect.Type]bool)
-	next := []embedded{{t: t}}
+	next := []embeddedStruct{{t: t}}
 	for len(next) > 0 {
 		curr := next
 		next = nil
@@ -286,34 +282,50 @@ func structFieldsByAvroName(t reflect.Type) map[string][]int {
 				continue
 			}
 			visited[e.t] = true
-			for i := range e.t.NumField() {
-				sf := e.t.Field(i)
-				index := append(append(make([]int, 0, len(e.index)+1), e.index...), i)
-				if sf.Anonymous {
-					ft := sf.Type
-					if ft.Kind() == reflect.Pointer {
-						ft = ft.Elem()
-					}
-					if ft.Kind() == reflect.Struct {
-						next = append(next, embedded{t: ft, index: index})
-					}
-					continue
-				}
-				if !sf.IsExported() {
-					continue
-				}
-				name := sf.Name
-				if tag, ok := sf.Tag.Lookup("avro"); ok {
-					name, _, _ = strings.Cut(tag, ",")
-				}
-				if _, ok := out[name]; !ok {
-					out[name] = index
-				}
-			}
+			next = append(next, addStructFieldIndexes(e, out)...)
 		}
 	}
 	c, _ := structFieldsCache.LoadOrStore(t, out)
 	return c.(map[string][]int) //nolint:forcetypeassert // only this function stores
+}
+
+// embeddedStruct is a struct type reached through embedding, with the index
+// path to it.
+type embeddedStruct struct {
+	t     reflect.Type
+	index []int
+}
+
+// addStructFieldIndexes adds the exported, named fields of e.t to out, by
+// index path from the outer struct, unless out already has the name, and
+// returns its embedded structs.
+func addStructFieldIndexes(e embeddedStruct, out map[string][]int) []embeddedStruct {
+	var embedded []embeddedStruct
+	for i := range e.t.NumField() {
+		sf := e.t.Field(i)
+		index := append(append(make([]int, 0, len(e.index)+1), e.index...), i)
+		if sf.Anonymous {
+			ft := sf.Type
+			if ft.Kind() == reflect.Pointer {
+				ft = ft.Elem()
+			}
+			if ft.Kind() == reflect.Struct {
+				embedded = append(embedded, embeddedStruct{t: ft, index: index})
+			}
+			continue
+		}
+		if !sf.IsExported() {
+			continue
+		}
+		name := sf.Name
+		if tag, ok := sf.Tag.Lookup("avro"); ok {
+			name, _, _ = strings.Cut(tag, ",")
+		}
+		if _, ok := out[name]; !ok {
+			out[name] = index
+		}
+	}
+	return embedded
 }
 
 // structFieldsCache maps a struct reflect.Type to structFieldsByAvroName's
