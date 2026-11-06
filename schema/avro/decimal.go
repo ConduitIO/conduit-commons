@@ -477,24 +477,15 @@ var bigPow10Cache = func() [77]*big.Int {
 	return c
 }()
 
-// bigPow10Large caches 10^n for n above 76, computed on first use. Only
-// call bigPow10 with an exponent taken from a schema (a precision, a scale
-// or their difference), so the cache grows with the schemas in use, not with
-// the data; an exponent derived from a value is computed per call instead
-// (see fits).
-var bigPow10Large sync.Map // int -> *big.Int
-
-// bigPow10 returns 10^n for a schema-derived n. The result is shared and
-// must not be modified.
+// bigPow10 returns 10^n. Exponents up to 76 come from the shared table and
+// must not be modified. Larger exponents are computed per call and not
+// retained: a schema can declare any precision, and keeping every distinct
+// large power would let the set of schemas seen grow memory without bound.
 func bigPow10(n int) *big.Int {
 	if n < len(bigPow10Cache) {
 		return bigPow10Cache[n]
 	}
-	if c, ok := bigPow10Large.Load(n); ok {
-		return c.(*big.Int) //nolint:forcetypeassert // only this function stores
-	}
-	c, _ := bigPow10Large.LoadOrStore(n, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n)), nil))
-	return c.(*big.Int) //nolint:forcetypeassert // only this function stores
+	return new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(n)), nil)
 }
 
 // neededScale returns the number of fractional digits of a reduced fraction
