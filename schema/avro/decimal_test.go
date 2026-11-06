@@ -69,14 +69,19 @@ func TestSerde_Marshal_DecimalInferred(t *testing.T) {
 		value   string
 		wantErr string // empty: must round-trip exactly
 	}{
-		{value: "1.123456789012", wantErr: `field "d": the value needs precision 13 and scale 12, the schema is decimal(31,10)`},
+		{value: "1.123456789012", wantErr: `field "d": the value needs precision 13 and scale 12, the schema is decimal(31,10); ` +
+			"fix: use a schema with at least 21 integer and 12 fractional digits, such as decimal(33,12), " +
+			"or round the value to at most 10 fractional digits before encoding"},
 		{value: "-1.123456789012", wantErr: `needs precision 13 and scale 12, the schema is decimal(31,10)`},
 		{value: "0.00000000001", wantErr: `needs precision 11 and scale 11`},
 		{value: "-0.00000000001", wantErr: `needs precision 11 and scale 11`},
-		{value: "1/3", wantErr: `needs a non-terminating decimal expansion, the schema is decimal(31,10)`},
+		{value: "1/3", wantErr: `needs a non-terminating decimal expansion, the schema is decimal(31,10); ` +
+			"fix: round the value to at most 10 fractional digits before encoding"},
 		{value: "-2/3", wantErr: `needs a non-terminating decimal expansion`},
 		// 22 integer digits do not fit 31-10 = 21.
-		{value: "1000000000000000000000", wantErr: `needs precision 22 and scale 0, the schema is decimal(31,10)`},
+		// Rounding would not help, so the fix only widens the schema.
+		{value: "1000000000000000000000", wantErr: `needs precision 22 and scale 0, the schema is decimal(31,10); ` +
+			"fix: use a schema with at least 22 integer and 10 fractional digits, such as decimal(32,10)"},
 		{value: "-1000000000000000000000.5", wantErr: `needs precision 23 and scale 1`},
 
 		{value: "0"},
@@ -309,10 +314,12 @@ func TestSerde_Marshal_DecimalParsedSchemas(t *testing.T) {
 			wantErr: `field "amount": the value needs precision 4 and scale 3`,
 		},
 		{
-			name:    "top-level decimal",
-			schema:  bytesDecimal(10, 2),
-			value:   mustRat(t, "1.255"),
-			wantErr: `field <root>: the value needs precision 4 and scale 3`,
+			name:   "top-level decimal",
+			schema: bytesDecimal(10, 2),
+			value:  mustRat(t, "1.255"),
+			wantErr: `field <root>: the value needs precision 4 and scale 3, the schema is decimal(10,2); ` +
+				"fix: use a schema with at least 8 integer and 3 fractional digits, such as decimal(11,3), " +
+				"or round the value to at most 2 fractional digits before encoding",
 		},
 	}
 	for _, tc := range testCases {

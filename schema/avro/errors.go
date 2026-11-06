@@ -68,8 +68,11 @@ var (
 	// value does not fit its schema's decimal(precision, scale) exactly: it
 	// has more fractional digits than the scale, no finite decimal expansion
 	// at all, or more significant digits than the precision. The error names
-	// the field, the precision and scale the value needs and the schema's; it
-	// does not repeat the value.
+	// the field, the precision and scale the value needs and the schema's,
+	// and ends with a fix: the smallest schema that holds both the old
+	// schema's range and the value, or rounding the value upstream when it
+	// has more fractional digits than the scale. It does not repeat the
+	// value.
 	// The codec truncated such a value without an error before (1.123456789012
 	// against decimal(31,10) was written as 1.1234567890), so this package
 	// rejects it before the codec sees it.

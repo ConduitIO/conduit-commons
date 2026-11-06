@@ -44,7 +44,8 @@ import (
 // Invariant 6 (schema handling never silently mangles data): Marshal encodes
 // a decimal only if decoding it gives back exactly the same number. Otherwise
 // it returns ErrDecimalNotRepresentable, naming the field, the precision and
-// scale the value needs and the ones the schema has (not the value).
+// scale the value needs and the ones the schema has (not the value), and a
+// fix.
 
 // schemaContainsDecimal reports whether schema contains a decimal logical
 // type anywhere below it, following named-type references. The result is
@@ -378,16 +379,32 @@ func (w *decimalWalker) fits(r *big.Rat, dec *avro.DecimalLogicalSchema) error {
 	}
 
 	// The message names the value's position and size, never the value
-	// itself, so it can be shown wherever record values cannot.
-	need := "a non-terminating decimal expansion"
-	if scale, ok := neededScale(r.Denom()); ok {
-		exact := new(big.Int).Mul(bigPow10(scale), r.Num())
-		exact.Quo(exact, r.Denom())
-		need = fmt.Sprintf("precision %d and scale %d", max(numDigits(exact), scale), scale)
+	// itself, so it can be shown wherever record values cannot. It ends with
+	// the fix: a schema wide enough for both the old schema's range and the
+	// value, or rounding upstream when the value has too many fractional
+	// digits.
+	schemaPrec, schemaScale := dec.Precision(), dec.Scale()
+	scale, ok := neededScale(r.Denom())
+	if !ok {
+		return fmt.Errorf(
+			"%w: field %s: the value needs a non-terminating decimal expansion, the schema is decimal(%d,%d); "+
+				"fix: round the value to at most %d fractional digits before encoding",
+			ErrDecimalNotRepresentable, formatPath(w.path), schemaPrec, schemaScale, schemaScale,
+		)
+	}
+	exact := new(big.Int).Mul(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(scale)), nil), r.Num())
+	exact.Quo(exact, r.Denom())
+	prec := max(numDigits(exact), scale)
+	wideScale := max(scale, schemaScale)
+	widePrec := wideScale + max(prec-scale, schemaPrec-schemaScale)
+	fix := fmt.Sprintf("use a schema with at least %d integer and %d fractional digits, such as decimal(%d,%d)",
+		widePrec-wideScale, wideScale, widePrec, wideScale)
+	if scale > schemaScale {
+		fix += fmt.Sprintf(", or round the value to at most %d fractional digits before encoding", schemaScale)
 	}
 	return fmt.Errorf(
-		"%w: field %s: the value needs %s, the schema is decimal(%d,%d)",
-		ErrDecimalNotRepresentable, formatPath(w.path), need, dec.Precision(), dec.Scale(),
+		"%w: field %s: the value needs precision %d and scale %d, the schema is decimal(%d,%d); fix: %s",
+		ErrDecimalNotRepresentable, formatPath(w.path), prec, scale, schemaPrec, schemaScale, fix,
 	)
 }
 
