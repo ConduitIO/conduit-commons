@@ -165,7 +165,8 @@ func unwrapUnion(s *avro.UnionSchema, v any, pos unionPosition) (any, error) {
 	for name, inner := range w {
 		branch, idx := s.Types().Get(name)
 		if idx < 0 {
-			return nil, fmt.Errorf("union %s has no branch %q: %w", s.String(), name, ErrSchemaValueMismatch)
+			// The key comes from the record data, so it is not echoed.
+			return nil, fmt.Errorf("union %s has no branch named by the wrapper key: %w", s.String(), ErrSchemaValueMismatch)
 		}
 		// A union never directly contains a union, so the branch's own
 		// children decide their positions.

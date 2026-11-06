@@ -306,7 +306,7 @@ func readMap(us *avro.UnionSchema, m map[string]any, container bool) (unionReadi
 		}
 	}
 	if len(readings) == 0 {
-		return unionReading{}, fmt.Errorf("value %v fits no branch of union %s: %w", m, us.String(), ErrSchemaValueMismatch)
+		return unionReading{}, fmt.Errorf("value of type %T with %d keys fits no branch of union %s: %w", m, len(m), us.String(), ErrSchemaValueMismatch)
 	}
 	return oneReading(us, m, readings)
 }
@@ -444,7 +444,9 @@ func ambiguousUnionValueError(us *avro.UnionSchema, v any, readings []unionReadi
 			names[i] = fmt.Sprintf("{%q: value}", rd.name)
 		}
 	}
-	return fmt.Errorf("value %v of union %s is ambiguous, it reads as each of %v: %w", v, us.String(), names, ErrSchemaValueMismatch)
+	// Only the Go type of v goes into the message, never v itself: the error
+	// ends up in logs and API responses and a record value must not.
+	return fmt.Errorf("value of type %T of union %s is ambiguous, it reads as each of %v: %w", v, us.String(), names, ErrSchemaValueMismatch)
 }
 
 // fitsUnresolvableBranch reports whether v is a bare value of branch b that
