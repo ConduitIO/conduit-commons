@@ -32,6 +32,7 @@ type Serde struct {
 	decodeAPI     avro.API // built once at construction from maxInputSize; see limits.go
 	encodeAPI     avro.API // this Serde's own encoder cache; see newEncodeAPI
 	hasMap        bool     // whether the schema contains a map; see encode.go
+	hasDecimal    bool     // whether the schema contains a decimal; see decimal.go
 }
 
 // newEncodeAPI returns the codec configuration a Serde encodes with. It has
@@ -64,6 +65,10 @@ func newEncodeAPI() avro.API {
 // iterating the Go map, whose order Go randomizes on every range, so a schema
 // that contains a map is encoded by this package's own deterministic encoder
 // (see encode.go), which sorts map keys before writing them.
+//
+// Marshal never rounds or truncates a decimal: a *big.Rat that does not fit
+// its schema's decimal(precision, scale) exactly makes it return
+// ErrDecimalNotRepresentable (see decimal.go).
 func (s *Serde) Marshal(v any) ([]byte, error) {
 	// Invariant 6: the union wrapping happens on a copy, never on v.
 	v = s.unionResolver.copyForWrap(v)
@@ -76,6 +81,13 @@ func (s *Serde) Marshal(v any) ([]byte, error) {
 	}
 	for _, sub := range subs {
 		sub.substitute()
+	}
+	if s.hasDecimal {
+		// Invariant 6: a decimal is encoded only if it decodes to exactly the
+		// same number. The codec truncates silently; see decimal.go.
+		if err := checkDecimals(s.schema, v); err != nil {
+			return nil, fmt.Errorf("could not marshal into avro: %w", err)
+		}
 	}
 	var bytes []byte
 	if s.hasMap {
@@ -234,6 +246,7 @@ func Parse(text []byte, opts ...Option) (*Serde, error) {
 		decodeAPI:     buildDecodeAPI(schema, o),
 		encodeAPI:     newEncodeAPI(),
 		hasMap:        schemaContainsMap(schema),
+		hasDecimal:    schemaContainsDecimal(schema),
 	}, nil
 }
 
@@ -260,6 +273,7 @@ func SerdeForType(v any, opts ...Option) (*Serde, error) {
 		decodeAPI:     buildDecodeAPI(schema, o),
 		encodeAPI:     newEncodeAPI(),
 		hasMap:        schemaContainsMap(schema),
+		hasDecimal:    schemaContainsDecimal(schema),
 	}
 	// Sort fields to ensure consistent schema representation.
 	s.sort()
