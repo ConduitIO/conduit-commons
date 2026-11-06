@@ -129,7 +129,10 @@ func TestSerde_Marshal_DecimalParsedSchemas(t *testing.T) {
 		name    string
 		schema  string
 		value   any
-		wantErr string // empty: must encode
+		wantErr string // empty: must encode, unless codecErr
+		// codecErr: the codec itself must reject the value; the test only
+		// asserts that Marshal fails, so nothing is encoded silently.
+		codecErr bool
 	}{
 		{
 			name:    "bytes scale 2, three fractional digits",
@@ -194,6 +197,87 @@ func TestSerde_Marshal_DecimalParsedSchemas(t *testing.T) {
 			value:   map[string]any{"d": mustRat(t, "0.125")},
 			wantErr: `field "d": the value needs precision 3 and scale 3, the schema is decimal(10,2)`,
 		},
+		// Non-nullable unions: the Serde's union resolver leaves a bare
+		// *big.Rat unwrapped here, so only the walker's bare-decimal path
+		// resolves it to the bytes.decimal branch the codec encodes it with.
+		{
+			name:    "union string first, bare value",
+			schema:  decimalRecordSchema(`["string",` + bytesDecimal(10, 2) + `]`),
+			value:   map[string]any{"d": mustRat(t, "1.255")},
+			wantErr: `field "d": the value needs precision 4 and scale 3, the schema is decimal(10,2)`,
+		},
+		{
+			name:   "union string first, bare value, exact",
+			schema: decimalRecordSchema(`["string",` + bytesDecimal(10, 2) + `]`),
+			value:  map[string]any{"d": mustRat(t, "1.25")},
+		},
+		{
+			name:    "union decimal first, bare value",
+			schema:  decimalRecordSchema(`[` + bytesDecimal(10, 2) + `,"string"]`),
+			value:   map[string]any{"d": mustRat(t, "-1.255")},
+			wantErr: `field "d": the value needs precision 4 and scale 3`,
+		},
+		{
+			name:    "union with null and string, bare value",
+			schema:  decimalRecordSchema(`["null","string",` + bytesDecimal(10, 2) + `]`),
+			value:   map[string]any{"d": mustRat(t, "1.255")},
+			wantErr: `field "d": the value needs precision 4 and scale 3`,
+		},
+		{
+			name:    "union of int and decimal, bare value too many integer digits",
+			schema:  decimalRecordSchema(`["int",` + bytesDecimal(4, 2) + `]`),
+			value:   map[string]any{"d": mustRat(t, "100.5")},
+			wantErr: `field "d": the value needs precision 4 and scale 1, the schema is decimal(4,2)`,
+		},
+		{
+			name:    "union in an array item, bare value",
+			schema:  decimalRecordSchema(`{"type":"array","items":["string",` + bytesDecimal(10, 2) + `]}`),
+			value:   map[string]any{"d": []any{"x", mustRat(t, "1.255")}},
+			wantErr: `field "d[1]": the value needs precision 4 and scale 3`,
+		},
+		{
+			name:    "top-level union, bare value",
+			schema:  `["string",` + bytesDecimal(10, 2) + `]`,
+			value:   mustRat(t, "1.255"),
+			wantErr: `field <root>: the value needs precision 4 and scale 3`,
+		},
+		{
+			name:   "top-level union, bare value, exact",
+			schema: `["string",` + bytesDecimal(10, 2) + `]`,
+			value:  mustRat(t, "1.25"),
+		},
+		{
+			// Both decimal kinds in one union: a bare value reads as either
+			// branch, so Marshal must report it as ambiguous, not pick one.
+			name:     "union of bytes and fixed decimals, bare value",
+			schema:   decimalRecordSchema(`["null",` + bytesDecimal(10, 1) + `,` + fixedDec + `]`),
+			value:    map[string]any{"d": mustRat(t, "1.2")},
+			codecErr: true,
+		},
+		{
+			name:    "union of bytes and fixed decimals, fixed branch named",
+			schema:  decimalRecordSchema(`["null",` + bytesDecimal(10, 1) + `,` + fixedDec + `]`),
+			value:   map[string]any{"d": map[string]any{"fx": mustRat(t, "1.255")}},
+			wantErr: `field "d": the value needs precision 4 and scale 3, the schema is decimal(10,2)`,
+		},
+		{
+			name:   "union of bytes and fixed decimals, fixed branch named, exact",
+			schema: decimalRecordSchema(`["null",` + bytesDecimal(10, 1) + `,` + fixedDec + `]`),
+			value:  map[string]any{"d": map[string]any{"fx": mustRat(t, "1.25")}},
+		},
+		{
+			// No bytes.decimal branch: the Serde resolves the bare value to
+			// the fixed branch, and that branch's scale applies.
+			name:    "non-nullable union of string and fixed decimal, bare value",
+			schema:  decimalRecordSchema(`["string",` + fixedDec + `]`),
+			value:   map[string]any{"d": mustRat(t, "1.255")},
+			wantErr: `field "d": the value needs precision 4 and scale 3, the schema is decimal(10,2)`,
+		},
+		{
+			name:   "non-nullable union of string and fixed decimal, bare value, exact",
+			schema: decimalRecordSchema(`["string",` + fixedDec + `]`),
+			value:  map[string]any{"d": mustRat(t, "1.25")},
+		},
 		{
 			name:    "array item",
 			schema:  decimalRecordSchema(`{"type":"array","items":` + bytesDecimal(10, 2) + `}`),
@@ -237,6 +321,10 @@ func TestSerde_Marshal_DecimalParsedSchemas(t *testing.T) {
 			serde, err := avro.Parse([]byte(tc.schema))
 			is.NoErr(err)
 			_, err = serde.Marshal(tc.value)
+			if tc.codecErr {
+				is.True(err != nil)
+				return
+			}
 			if tc.wantErr == "" {
 				is.NoErr(err)
 				return
