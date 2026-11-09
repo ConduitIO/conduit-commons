@@ -322,10 +322,12 @@ func TestSerde_MarshalUnmarshal(t *testing.T) {
 			avro.NewDecimalLogicalSchema(31, 10),
 		),
 	}, {
-		name:      "big.Rat (with rounding)",
-		haveValue: *big.NewRat(2, 3),
-		// rounded to 10 decimals
-		wantValue: big.NewRat(6666666666, 10000000000),
+		// A value that needs all 10 digits of the inferred scale. A value
+		// that needs more (2/3 used to be here, encoded as 0.6666666666) is
+		// now an error, see TestSerde_Marshal_DecimalInferred.
+		name:      "big.Rat (exactly scale 10)",
+		haveValue: *big.NewRat(1, 1024),
+		wantValue: big.NewRat(1, 1024),
 		wantSchema: avro.NewPrimitiveSchema(
 			avro.Bytes,
 			avro.NewDecimalLogicalSchema(31, 10),
