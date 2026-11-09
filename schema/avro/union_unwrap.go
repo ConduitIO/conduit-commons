@@ -17,6 +17,7 @@ package avro
 import (
 	"fmt"
 
+	"github.com/conduitio/conduit-commons/logsafe"
 	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/iskorotkov/avro/v2"
 )
@@ -144,7 +145,8 @@ func unwrapMap(s *avro.MapSchema, v any) error {
 	for k, mv := range m {
 		nv, err := unwrapUnions(s.Values(), mv, posMapValue)
 		if err != nil {
-			return fmt.Errorf("%s: %w", k, err)
+			// The key is record data: name it by its salted digest only.
+			return fmt.Errorf("[key %s]: %w", logsafe.HashString(k), err)
 		}
 		m[k] = nv
 	}

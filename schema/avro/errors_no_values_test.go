@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/conduitio/conduit-commons/logsafe"
 	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/iskorotkov/avro/v2"
 	"github.com/matryer/is"
@@ -59,10 +60,10 @@ func TestSerde_Marshal_ErrorsDoNotContainValues(t *testing.T) {
 			_, err = s.Marshal(opencdc.StructuredData{"f": tc.value})
 			is.True(errors.Is(err, ErrSchemaValueMismatch))
 			msg := err.Error()
-			is.True(strings.Contains(msg, tc.wantPath)) // field path
-			is.True(strings.Contains(msg, tc.wantType)) // type information
 			is.True(!strings.Contains(msg, sampleInt))
 			is.True(!strings.Contains(msg, sampleString))
+			is.True(strings.Contains(msg, tc.wantPath)) // field path
+			is.True(strings.Contains(msg, tc.wantType)) // type information
 		})
 	}
 }
@@ -78,4 +79,33 @@ func TestUnwrapUnions_UnknownBranchDoesNotEchoKey(t *testing.T) {
 	is.True(errors.Is(err, ErrSchemaValueMismatch))
 	is.True(strings.Contains(err.Error(), "no branch"))
 	is.True(!strings.Contains(err.Error(), "key-sample-77"))
+}
+
+// TestUnionErrors_MapKeyNotEchoed checks that a map key, which is record data,
+// is named in a union error only by its salted digest, both when encoding and
+// when unwrapping a decoded value.
+func TestUnionErrors_MapKeyNotEchoed(t *testing.T) {
+	const secretKey = "secret-key-xyz"
+	field := `{"type":"map","values":["null",{"type":"map","values":"int"},{"type":"record","name":"R","fields":[{"name":"a","type":"int"}]}]}`
+
+	t.Run("marshal", func(t *testing.T) {
+		is := is.New(t)
+		s, err := Parse([]byte(`{"type":"record","name":"Root","fields":[{"name":"f","type":` + field + `}]}`))
+		is.NoErr(err)
+		_, err = s.Marshal(opencdc.StructuredData{"f": map[string]any{secretKey: map[string]any{"a": "x"}}})
+		is.True(err != nil)
+		is.True(!strings.Contains(err.Error(), secretKey))
+		is.True(strings.Contains(err.Error(), "[key "+logsafe.HashString(secretKey)+"]"))
+	})
+
+	t.Run("unwrap", func(t *testing.T) {
+		is := is.New(t)
+		rs, err := Parse([]byte(`{"type":"record","name":"Root","fields":[{"name":"f","type":` + field + `}]}`))
+		is.NoErr(err)
+		ms := rs.schema.(*avro.RecordSchema).Fields()[0].Type()
+		_, err = unwrapUnions(ms, map[string]any{secretKey: map[string]any{"unknown-branch": 1}}, posTop)
+		is.True(errors.Is(err, ErrSchemaValueMismatch))
+		is.True(!strings.Contains(err.Error(), secretKey))
+		is.True(strings.Contains(err.Error(), "[key "+logsafe.HashString(secretKey)+"]"))
+	})
 }

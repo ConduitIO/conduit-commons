@@ -21,6 +21,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/conduitio/conduit-commons/logsafe"
 	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/iskorotkov/avro/v2"
 	"github.com/modern-go/reflect2"
@@ -185,7 +186,8 @@ func (w *unionWrapper) mapValues(s *avro.MapSchema, v any) error {
 	for k, mv := range m {
 		nv, replace, err := w.value(s.Values(), mv, posMapValue)
 		if err != nil {
-			return fmt.Errorf("%s: %w", k, err)
+			// The key is record data: name it by its salted digest only.
+			return fmt.Errorf("[key %s]: %w", logsafe.HashString(k), err)
 		}
 		if replace {
 			w.subs = append(w.subs, mapSubstitution{m: m, key: k, val: nv})
