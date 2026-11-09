@@ -21,6 +21,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/conduitio/conduit-commons/logsafe"
 	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/iskorotkov/avro/v2"
 	"github.com/modern-go/reflect2"
@@ -185,7 +186,8 @@ func (w *unionWrapper) mapValues(s *avro.MapSchema, v any) error {
 	for k, mv := range m {
 		nv, replace, err := w.value(s.Values(), mv, posMapValue)
 		if err != nil {
-			return fmt.Errorf("%s: %w", k, err)
+			// The key is record data: name it by its salted digest only.
+			return fmt.Errorf("[key %s]: %w", logsafe.HashString(k), err)
 		}
 		if replace {
 			w.subs = append(w.subs, mapSubstitution{m: m, key: k, val: nv})
@@ -306,7 +308,7 @@ func readMap(us *avro.UnionSchema, m map[string]any, container bool) (unionReadi
 		}
 	}
 	if len(readings) == 0 {
-		return unionReading{}, fmt.Errorf("value %v fits no branch of union %s: %w", m, us.String(), ErrSchemaValueMismatch)
+		return unionReading{}, fmt.Errorf("value of type %T with %d keys fits no branch of union %s: %w", m, len(m), us.String(), ErrSchemaValueMismatch)
 	}
 	return oneReading(us, m, readings)
 }
@@ -444,7 +446,9 @@ func ambiguousUnionValueError(us *avro.UnionSchema, v any, readings []unionReadi
 			names[i] = fmt.Sprintf("{%q: value}", rd.name)
 		}
 	}
-	return fmt.Errorf("value %v of union %s is ambiguous, it reads as each of %v: %w", v, us.String(), names, ErrSchemaValueMismatch)
+	// Only the Go type of v goes into the message, never v itself: the error
+	// ends up in logs and API responses and a record value must not.
+	return fmt.Errorf("value of type %T of union %s is ambiguous, it reads as each of %v: %w", v, us.String(), names, ErrSchemaValueMismatch)
 }
 
 // fitsUnresolvableBranch reports whether v is a bare value of branch b that

@@ -18,8 +18,10 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 
+	"github.com/conduitio/conduit-commons/logsafe"
 	opencdcv1 "github.com/conduitio/conduit-commons/proto/opencdc/v1"
 	opencdcv2 "github.com/conduitio/conduit-commons/proto/opencdc/v2"
 	"github.com/matryer/is"
@@ -360,4 +362,15 @@ func assertV2ValueEqual(t *testing.T, is *is.I, want, got any) {
 		}
 	}
 	is.Equal(got, want)
+}
+
+// TestStructFromProtoV2_ErrorDoesNotEchoKey checks that a struct key, which
+// can be record data, is named in a decoding error only by its salted digest.
+func TestStructFromProtoV2_ErrorDoesNotEchoKey(t *testing.T) {
+	is := is.New(t)
+	const secretKey = "secret-key-xyz"
+	_, err := structFromProtoV2(&opencdcv2.Struct{Fields: map[string]*opencdcv2.Value{secretKey: {}}})
+	is.True(errors.Is(err, ErrInvalidProtoDataType))
+	is.True(!strings.Contains(err.Error(), secretKey))
+	is.True(strings.Contains(err.Error(), "[key "+logsafe.HashString(secretKey)+"]"))
 }

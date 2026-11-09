@@ -17,6 +17,7 @@ package avro
 import (
 	"fmt"
 
+	"github.com/conduitio/conduit-commons/logsafe"
 	"github.com/conduitio/conduit-commons/opencdc"
 	"github.com/iskorotkov/avro/v2"
 )
@@ -144,7 +145,8 @@ func unwrapMap(s *avro.MapSchema, v any) error {
 	for k, mv := range m {
 		nv, err := unwrapUnions(s.Values(), mv, posMapValue)
 		if err != nil {
-			return fmt.Errorf("%s: %w", k, err)
+			// The key is record data: name it by its salted digest only.
+			return fmt.Errorf("[key %s]: %w", logsafe.HashString(k), err)
 		}
 		m[k] = nv
 	}
@@ -165,7 +167,8 @@ func unwrapUnion(s *avro.UnionSchema, v any, pos unionPosition) (any, error) {
 	for name, inner := range w {
 		branch, idx := s.Types().Get(name)
 		if idx < 0 {
-			return nil, fmt.Errorf("union %s has no branch %q: %w", s.String(), name, ErrSchemaValueMismatch)
+			// The key comes from the record data, so it is not echoed.
+			return nil, fmt.Errorf("union %s has no branch named by the wrapper key: %w", s.String(), ErrSchemaValueMismatch)
 		}
 		// A union never directly contains a union, so the branch's own
 		// children decide their positions.
