@@ -15,9 +15,12 @@
 package opencdc
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/conduitio/conduit-commons/logsafe"
 )
 
 const (
@@ -130,7 +133,7 @@ func (m Metadata) GetCreatedAt() (time.Time, error) {
 
 	unixNano, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to parse value for %q: %w", MetadataCreatedAt, err)
+		return time.Time{}, fmt.Errorf("failed to parse value for %q (%s): %w", MetadataCreatedAt, redactedValue(raw), withoutInput(err))
 	}
 
 	return time.Unix(0, unixNano), nil
@@ -154,7 +157,7 @@ func (m Metadata) GetReadAt() (time.Time, error) {
 
 	unixNano, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to parse value for %q: %w", MetadataReadAt, err)
+		return time.Time{}, fmt.Errorf("failed to parse value for %q (%s): %w", MetadataReadAt, redactedValue(raw), withoutInput(err))
 	}
 
 	return time.Unix(0, unixNano), nil
@@ -289,7 +292,7 @@ func (m Metadata) GetKeySchemaVersion() (int, error) {
 
 	v, err := strconv.Atoi(vs)
 	if err != nil {
-		return 0, fmt.Errorf("invalid version %q: %w", vs, err)
+		return 0, fmt.Errorf("invalid version %s: %w", redactedValue(vs), withoutInput(err))
 	}
 
 	return v, nil
@@ -321,7 +324,7 @@ func (m Metadata) GetPayloadSchemaVersion() (int, error) {
 
 	v, err := strconv.Atoi(vs)
 	if err != nil {
-		return 0, fmt.Errorf("invalid version %q: %w", vs, err)
+		return 0, fmt.Errorf("invalid version %s: %w", redactedValue(vs), withoutInput(err))
 	}
 
 	return v, nil
@@ -353,7 +356,7 @@ func (m Metadata) GetFileSize() (int64, error) {
 
 	filesize, err := strconv.ParseInt(size, 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("invalid filesize %q: %w", size, err)
+		return 0, fmt.Errorf("invalid filesize %s: %w", redactedValue(size), withoutInput(err))
 	}
 
 	return filesize, nil
@@ -383,7 +386,7 @@ func (m Metadata) GetFileChunked() (bool, error) {
 	}
 	chunked, err := strconv.ParseBool(val)
 	if err != nil {
-		return false, fmt.Errorf("invalid file chunked field %q: %w", val, err)
+		return false, fmt.Errorf("invalid file chunked field %s: %w", redactedValue(val), withoutInput(err))
 	}
 	return chunked, nil
 }
@@ -403,7 +406,7 @@ func (m Metadata) GetFileChunkIndex() (int, error) {
 
 	filesize, err := strconv.Atoi(i)
 	if err != nil {
-		return 0, fmt.Errorf("invalid chunk index %q: %w", i, err)
+		return 0, fmt.Errorf("invalid chunk index %s: %w", redactedValue(i), withoutInput(err))
 	}
 
 	return filesize, nil
@@ -424,7 +427,7 @@ func (m Metadata) GetFileChunkCount() (int, error) {
 
 	filesize, err := strconv.Atoi(i)
 	if err != nil {
-		return 0, fmt.Errorf("invalid chunk count %q: %w", i, err)
+		return 0, fmt.Errorf("invalid chunk count %s: %w", redactedValue(i), withoutInput(err))
 	}
 
 	return filesize, nil
@@ -443,4 +446,23 @@ func (m Metadata) getValue(key string) (string, error) {
 		return "", fmt.Errorf("failed to get value for %q: %w", key, ErrMetadataFieldNotFound)
 	}
 	return str, nil
+}
+
+// redactedValue describes a metadata value by its length and salted digest.
+// Metadata values come from records and errors reach logs, the DLQ and the API,
+// so errors must not quote them; the digest still lets two errors about the
+// same value be matched within one process.
+func redactedValue(v string) string {
+	return fmt.Sprintf("value (len %d, hash %s)", len(v), logsafe.HashString(v))
+}
+
+// withoutInput strips the offending input from a strconv error, which quotes
+// it (`parsing "abc": invalid syntax`). It returns the underlying sentinel
+// (strconv.ErrSyntax or strconv.ErrRange), so errors.Is on those still works.
+func withoutInput(err error) error {
+	var numErr *strconv.NumError
+	if errors.As(err, &numErr) {
+		return numErr.Err
+	}
+	return err
 }

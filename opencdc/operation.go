@@ -55,7 +55,7 @@ func (o *Operation) UnmarshalText(b []byte) error {
 		valIntRaw := strings.TrimSuffix(strings.TrimPrefix(string(b), "Operation("), ")")
 		valInt, err := strconv.Atoi(valIntRaw)
 		if err != nil {
-			return fmt.Errorf("operation %q: %w", b, ErrUnknownOperation)
+			return fmt.Errorf("operation %s: %w", redactedValue(string(b)), ErrUnknownOperation)
 		}
 		*o = Operation(valInt)
 	}
