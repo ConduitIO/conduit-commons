@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/conduitio/conduit-commons/logsafe"
 	opencdcv2 "github.com/conduitio/conduit-commons/proto/opencdc/v2"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -197,7 +198,9 @@ func structFromProtoV2(s *opencdcv2.Struct) (map[string]any, error) {
 	for k, v := range s.Fields {
 		val, err := valueFromProtoV2(v)
 		if err != nil {
-			return nil, fmt.Errorf("error converting field %q: %w", k, err)
+			// A struct key can be record data (a map key): name it by its salted
+			// digest only.
+			return nil, fmt.Errorf("error converting field [key %s]: %w", logsafe.HashString(k), err)
 		}
 		out[k] = val
 	}
