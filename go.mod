@@ -1,6 +1,6 @@
 module github.com/conduitio/conduit-commons
 
-go 1.26.9
+go 1.26.11
 
 require (
 	github.com/bufbuild/protocompile v0.14.2-0.20260127163740-a85d2ef77713
