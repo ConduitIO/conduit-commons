@@ -163,6 +163,29 @@ func (m Metadata) GetReadAt() (time.Time, error) {
 	return time.Unix(0, unixNano), nil
 }
 
+// LookupReadAt is GetReadAt without the error: ok reports whether the key held
+// a value that parses as a unix timestamp in nanoseconds, and is false when the
+// key is absent, empty, or malformed.
+//
+// Prefer it on a hot path that has a fallback and therefore discards GetReadAt's
+// error. GetReadAt builds that error with fmt.Errorf before the caller can
+// discard it, so a record without the key costs an allocation per call;
+// LookupReadAt allocates nothing. A caller that must tell an absent key from a
+// malformed one apart still wants GetReadAt.
+func (m Metadata) LookupReadAt() (time.Time, bool) {
+	raw, ok := m.lookupValue(MetadataReadAt)
+	if !ok {
+		return time.Time{}, false
+	}
+
+	unixNano, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	return time.Unix(0, unixNano), true
+}
+
 // SetReadAt sets the metadata value for key MetadataReadAt as a unix
 // timestamp in nanoseconds.
 func (m Metadata) SetReadAt(createdAt time.Time) {
@@ -441,11 +464,19 @@ func (m Metadata) SetFileChunkCount(i int) {
 // getValue returns the value for a specific key. If the value does not exist or
 // is empty the function returns ErrMetadataFieldNotFound.
 func (m Metadata) getValue(key string) (string, error) {
-	str := m[key]
-	if str == "" {
+	str, ok := m.lookupValue(key)
+	if !ok {
 		return "", fmt.Errorf("failed to get value for %q: %w", key, ErrMetadataFieldNotFound)
 	}
 	return str, nil
+}
+
+// lookupValue returns the value for a specific key and whether it was present
+// and non-empty. It is getValue without the error, so a caller that has a
+// fallback does not pay for an error it discards; see LookupReadAt.
+func (m Metadata) lookupValue(key string) (string, bool) {
+	str := m[key]
+	return str, str != ""
 }
 
 // redactedValue describes a metadata value by its length and salted digest.
